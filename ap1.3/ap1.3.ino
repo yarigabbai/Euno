@@ -1,3 +1,20 @@
+/*
+Copyright (C) 2024 Yari Gabbai Euno Autopilot
+
+This software is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+
+- You are free to use, modify, and distribute this code **for non-commercial purposes only**.
+- You must **attribute** the original author in any derivative work.
+- **Commercial use is strictly prohibited** without explicit permission from the author.
+
+Unauthorized commercial use, redistribution, or modification for profit may lead to legal consequences.
+
+For full license details, visit:
+https://creativecommons.org/licenses/by-nc/4.0/legalcode
+*/
+
+
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <TFT_eSPI.h>
