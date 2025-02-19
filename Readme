@@ -38,8 +38,9 @@ The autopilot system consists of two main modules:
   - **SDA** → GPIO 9
   - **VCC** → 3.3V
   - **GND** → GND
+QMC sensori is included in Beitan 880, just wire.
 
-- **GPS (BN-880):**
+- **GPS (BN-880):** (Beitan 220 is a cheap alternative, but it isn's provided a compass sensor)
   - **TX** → GPIO 16
   - **RX** → GPIO 17
   - **VCC** → 3.3V
