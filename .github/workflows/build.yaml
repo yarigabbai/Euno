@@ -15,19 +15,19 @@ jobs:
 
         include:
           - arduino-boards-fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc
-            sketch-names: autopilot.ino
+            sketch-names: autopilot-core.ino
             arduino-platform: esp32:esp32@3.1.1
             platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-            required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3,XPT2046_Touchscreen@1.4
+            required-libraries: TinyGPSPlus@1.0.3,QMC5883LCompass@1.2.3
             sketch-names-find-start: autopilot*
             extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
             set-build-path: true
 
           - arduino-boards-fqbn: esp32:esp32:esp32
-            sketch-names: autopilot-ui.ino
+            sketch-names: autopilot.ino
             arduino-platform: esp32:esp32@3.1.1
             platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-            required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3
+            required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,XPT2046_Touchscreen@1.4
             sketch-names-find-start: autopilot-ui*
             extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
             set-build-path: true

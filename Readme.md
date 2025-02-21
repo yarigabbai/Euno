@@ -69,8 +69,8 @@ QMC sensori is included in Beitan 880, just wire.
   - **TFT_eSPI.h** (Display control)
 
 ### **Step 2: Upload Code**
-- **Load "autopilot.ino" onto ESP32-S3** (Handles actuator and heading corrections)
-- **Load "autopilot-ui.ino" onto CYD** (Manages touchscreen UI and WiFi communication)
+- **Load "autopilot-core.ino" onto ESP32-S3** (Handles actuator and heading corrections)
+- **Load "autopilot.ino" onto CYD** (Manages touchscreen UI and WiFi communication)
 
 ## **6. System Functionalities**
 ### **Autopilot Algorithm**
