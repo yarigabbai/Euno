@@ -14,10 +14,10 @@ jobs:
       - name: Compile sketch
         uses: ArminJo/arduino-test-compile@v3
         with:
-          arduino-board-fqbn: esp32:esp32:m5stack_atoms3:CDCOnBoot=cdc
+          arduino-board-fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc
           arduino-platform: esp32:esp32@3.1.1
           platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3,M5Unified@0.2.4,M5GFX@0.2.6
+          required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3
           sketch-names: "*.ino"
           sketch-names-find-start: autopilot-*
           extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
