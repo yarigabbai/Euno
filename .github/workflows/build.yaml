@@ -4,8 +4,35 @@ name: build
 on: [push, pull_request]
 jobs:
   build:
-    name: build for MCU
+    name: build for MCU ${{ matrix.arduino-boards-fqbn }}
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arduino-boards-fqbn:
+          - esp32:esp32:esp32s3:CDCOnBoot=cdc
+          - esp32:esp32:esp32
+
+        include:
+          - arduino-boards-fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc
+            sketch-names: autopilot.ino
+            arduino-platform: esp32:esp32@3.1.1
+            platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+            required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3
+            sketch-names-find-start: autopilot*
+            extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
+            set-build-path: true
+
+          - arduino-boards-fqbn: esp32:esp32:esp32
+            sketch-names: autopilot-ui.ino
+            arduino-platform: esp32:esp32@3.1.1
+            platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+            required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3
+            sketch-names-find-start: autopilot-ui*
+            extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
+            set-build-path: true
+
+      fail-fast: false
 
     steps:
       - name: Checkout
@@ -14,14 +41,14 @@ jobs:
       - name: Compile sketch
         uses: ArminJo/arduino-test-compile@v3
         with:
-          arduino-board-fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc
-          arduino-platform: esp32:esp32@3.1.1
-          platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          required-libraries: TinyGPSPlus@1.0.3,TFT_eSPI@2.5.43,QMC5883LCompass@1.2.3
-          sketch-names: "*.ino"
-          sketch-names-find-start: autopilot-*
-          extra-arduino-cli-args: "--warnings default --build-property compiler.libraries.ldflags=-Wl,--allow-multiple-definition "
-          set-build-path: true
+          arduino-board-fqbn: ${{ matrix.arduino-boards-fqbn }}
+          arduino-platform: ${{ matrix.arduino-platform }}
+          platform-url: ${{ matrix.platform-url }}
+          required-libraries: ${{ matrix.required-libraries }}
+          sketch-names: ${{ matrix.sketch-names }}
+          sketch-names-find-start: ${{ matrix.sketch-names-find-start }}
+          extra-arduino-cli-args: ${{ matrix.extra-arduino-cli-args }}
+          set-build-path: ${{ matrix.set-build-path }}
 
       - name: Find versions
         run: |
@@ -29,4 +56,3 @@ jobs:
           find /home/runner -name boot_app0.bin
           ls -la /home/runner/
           ls -l /home/runner/.arduino15/packages/esp32/tools/esptool_py/*
-
