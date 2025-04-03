@@ -1,7 +1,3 @@
-// ===================
-// File: udp_communication.h
-// ===================
-
 #ifndef UDP_COMMUNICATION_H
 #define UDP_COMMUNICATION_H
 
@@ -10,7 +6,6 @@
 #include <TinyGPSPlus.h>
 #include "calibration.h"
 
-// Variabili esterne (definite nel main)
 extern WiFiUDP udp;
 extern IPAddress serverIP;
 extern unsigned int serverPort;
@@ -26,13 +21,14 @@ extern bool calibrationMode;
 extern unsigned long calibrationStartTime;
 extern int compassOffsetX;
 
-// *** Aggiunto: variabili per i parametri ***
 extern int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
+extern bool otaInProgress;
+extern uint32_t otaSize;
+extern uint32_t otaReceived;
 
-// Dichiarazione di updateConfig (definita nel main)
 void updateConfig(String command);
+void handleOTAData(String command);
 
-// Setup WiFi (questa funzione può essere utilizzata se preferisci gestirlo qui)
 void setupWiFi(const char* ssid, const char* password) {
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
@@ -40,12 +36,9 @@ void setupWiFi(const char* ssid, const char* password) {
         Serial.print(".");
     }
     Serial.println("\nConnesso al WiFi");
-
     udp.begin(serverPort);
-    Serial.printf("DEBUG(UDP): Client UDP avviato. Porta: %d\n", serverPort);
 }
 
-// Invia dati NMEA al display (AP) tramite UDP, includendo anche i parametri
 void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus gps) {
     String nmeaData = "$AUTOPILOT,";
     nmeaData += "HEADING=" + String(currentHeading) + ",";
@@ -65,33 +58,52 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
     Serial.println("DEBUG(UDP): Dati NMEA inviati -> " + nmeaData);
 }
 
-// Gestione dei comandi UDP standard
 void handleCommand(String command) {
-    if (command == "ACTION:-1") {
+    Serial.println("DEBUG(UDP): Comando ricevuto -> " + command);
+
+    if (command.startsWith("CMD:")) {
+        if (externalBearingEnabled) {
+            int newHeading = command.substring(4).toInt();
+            headingCommand = newHeading;
+            Serial.println("DEBUG(UDP): Nuovo headingCommand da CMD: " + String(headingCommand));
+        } else {
+            Serial.println("DEBUG(UDP): CMD ricevuto ma externalBearingEnabled è disabilitato.");
+        }
+    }
+    else if (command.startsWith("OTA_")) {
+        handleOTAData(command);
+    }
+    else if (command == "ACTION:-1") {
         headingCommand -= 1;
         if (headingCommand < 0) headingCommand += 360;
         Serial.println("DEBUG(UDP): Comando: -1 grado");
-    } else if (command == "ACTION:+1") {
+    }
+    else if (command == "ACTION:+1") {
         headingCommand += 1;
         if (headingCommand >= 360) headingCommand -= 360;
         Serial.println("DEBUG(UDP): Comando: +1 grado");
-    } else if (command == "ACTION:CAL") {
+    }
+    else if (command == "ACTION:CAL") {
         Serial.println("DEBUG(UDP): Calibrazione bussola avviata.");
         calibrationMode = true;
         calibrationStartTime = millis();
         resetCalibrationData();
-    } else if (command == "ACTION:GPS") {
+    }
+    else if (command == "ACTION:GPS") {
         useGPSHeading = !useGPSHeading;
         Serial.println("DEBUG(UDP): Cambio sorgente heading: " + String(useGPSHeading ? "GPS" : "Bussola"));
-    } else if (command == "ACTION:-10") {
+    }
+    else if (command == "ACTION:-10") {
         headingCommand -= 10;
         if (headingCommand < 0) headingCommand += 360;
         Serial.println("DEBUG(UDP): Comando: -10 gradi");
-    } else if (command == "ACTION:+10") {
+    }
+    else if (command == "ACTION:+10") {
         headingCommand += 10;
         if (headingCommand >= 360) headingCommand -= 360;
         Serial.println("DEBUG(UDP): Comando: +10 gradi");
-    } else if (command == "ACTION:TOGGLE") {
+    }
+    else if (command == "ACTION:TOGGLE") {
         motorControllerState = !motorControllerState;
         if (motorControllerState) {
             headingCommand = currentHeading;
@@ -99,7 +111,8 @@ void handleCommand(String command) {
         } else {
             Serial.println("DEBUG(UDP): Motor controller spento.");
         }
-    } else if (command == "ACTION:C-GPS") {
+    }
+    else if (command == "ACTION:C-GPS") {
         if (gps.course.isValid()) {
             int gpsHeading = (int)gps.course.deg();
             compass.read();
@@ -113,10 +126,12 @@ void handleCommand(String command) {
         } else {
             Serial.println("DEBUG(UDP): Impossibile impostare l'offset, GPS non valido.");
         }
-    } else if (command == "EXT_BRG_ENABLED") {
+    }
+    else if (command == "EXT_BRG_ENABLED") {
         externalBearingEnabled = true;
         Serial.println("DEBUG(UDP): External Bearing abilitato.");
-    } else if (command == "EXT_BRG_DISABLED") {
+    }
+    else if (command == "EXT_BRG_DISABLED") {
         externalBearingEnabled = false;
         Serial.println("DEBUG(UDP): External Bearing disabilitato.");
     }
@@ -125,5 +140,40 @@ void handleCommand(String command) {
     }
 }
 
-#endif
+void handleOTAData(String command) {
+    if(command.startsWith("OTA_START:")) {
+        otaInProgress = true;
+        otaSize = command.substring(10).toInt();
+        otaReceived = 0;
+        if(!Update.begin(otaSize)) {
+            Serial.println("OTA Begin Failed");
+            otaInProgress = false;
+        }
+    }
+    else if(command.startsWith("OTA_DATA:")) {
+        if(otaInProgress) {
+            String data = command.substring(9);
+            size_t written = Update.write((uint8_t*)data.c_str(), data.length());
+            if(written != data.length()) {
+                Serial.println("OTA Write Failed");
+                Update.end(false);
+                otaInProgress = false;
+            }
+            otaReceived += data.length();
+        }
+    }
+    else if(command.startsWith("OTA_END:")) {
+        if(otaInProgress) {
+            if(Update.end(true)) {
+                Serial.println("OTA Success, rebooting...");
+                delay(1000);
+                ESP.restart();
+            } else {
+                Serial.println("OTA End Failed");
+            }
+            otaInProgress = false;
+        }
+    }
+}
 
+#endif
