@@ -10,6 +10,7 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include "tft_touch.h" // Per usare struct Parameter e params[]
+extern String infoLabels[6];
 #ifndef PARAMETER_DEFINED
 #define PARAMETER_DEFINED
 
@@ -29,7 +30,7 @@ enum ButtonActionState { BAS_IDLE, BAS_HIGHLIGHT, BAS_ACTION_SENT };
 #define NUM_PARAMS 8
 
 // Didascalie per i riquadri info (top area)
-static const char* infoLabels[6] = {"Heading", "Cmd", "Err", "GPS", "Spd", ""};
+
 void drawStaticLayout(TFT_eSPI &tft, bool motorControllerState, bool externalBearingEnabled);
 
 void updateDataBoxColor(TFT_eSPI &tft, int index, String value, uint16_t color);

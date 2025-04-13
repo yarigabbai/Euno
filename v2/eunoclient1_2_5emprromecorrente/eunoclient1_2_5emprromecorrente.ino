@@ -5,19 +5,40 @@
 #include <WiFiUdp.h>
 #include <WiFi.h>
 #include <math.h>
-#include "sensor_fusion.h"
+#include "sensor_fusion.h"  // Include il nostro modulo sensor fusion
 #include <Update.h> 
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
 
 // ###########################################
 // ### VARIABILI GLOBALI CONDIVISE ###
-//mod n 1 fatta tmin tmax, 3 fatta handlecommand to handlecommandclient punto 7 ota fatto, debug invece di serialln
 // ###########################################
 WiFiUDP udp;
 IPAddress serverIP(192, 168, 4, 1);
 unsigned int serverPort = 4210;
 char incomingPacket[255];
+int headingSourceMode = 0;  // 0 = COMPASS, 1 = FUSION, 2 = EXPERIMENTAL
+int headingOffset = 0;      // Offset software per la bussola (impostato con C-GPS)
+float smoothedSpeed = 0.0;
+
+//monitor corrente  su pin 19 e 20 implementare l10 letture in un minuto, poin media e 
+//poi 3 volte quella media ferma il motore in quella direzione
+
+//eeprrom
+#include <EEPROM.h>
+#define EEPROM_SIZE 64
+
+int readParameterFromEEPROM(int addr) {
+  int low  = EEPROM.read(addr);
+  int high = EEPROM.read(addr + 1);
+  return (high << 8) | low;
+}
+
+void writeParameterToEEPROM(int addr, int value) {
+  EEPROM.write(addr,     value & 0xFF);
+  EEPROM.write(addr + 1, (value >> 8) & 0xFF);
+  EEPROM.commit();
+}
 
 // ###########################################
 // ### VARIABILI OTA CLIENT ###
@@ -47,7 +68,7 @@ void sendOtaStatus(String status, int progress = -1) {
 }
 
 void handleOTAData(String command) {
-    if(command.startsWith("OTA_START:")) {
+    if (command.startsWith("OTA_START:")) {
         otaInProgress = true;
         otaSize = command.substring(10).toInt();
         otaReceived = 0;
@@ -76,14 +97,12 @@ void handleOTAData(String command) {
             }
             otaReceived += data.length();
             
-            // Calcola e invia progresso ogni 5% o 1 secondo
             int newProgress = (otaReceived * 100) / otaSize;
             if(newProgress != otaProgress || millis() - lastOtaUpdateTime >= 1000) {
                 otaProgress = newProgress;
                 lastOtaUpdateTime = millis();
                 sendOtaStatus("IN_PROGRESS", otaProgress);
-                Serial.printf("OTA Progress: %u/%u bytes (%d%%)\n", 
-                            otaReceived, otaSize, otaProgress);
+                Serial.printf("OTA Progress: %u/%u bytes (%d%%)\n", otaReceived, otaSize, otaProgress);
             }
         }
     }
@@ -113,9 +132,7 @@ void saveParameterToEEPROM(int address, int value) {
   EEPROM.commit();
 }
 
-int readParameterFromEEPROM(int address) {
-  return EEPROM.read(address) | (EEPROM.read(address + 1) << 8);
-}
+
 
 // ###########################################
 // ### VARIABILI GLOBALI ###
@@ -198,6 +215,8 @@ int getCorrectedHeading() {
     float correctedY = compass.getY() - compassOffsetY;
     float heading = atan2(correctedY, correctedX) * 180.0 / M_PI;
     if (heading < 0) heading += 360;
+    // Applica l'offset software salvato (C-GPS)
+    heading = fmod(heading + headingOffset, 360.0);
     return (int)round(heading);
 }
 
@@ -228,6 +247,31 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
     udp.write((const uint8_t*)nmeaData.c_str(), nmeaData.length());
     udp.endPacket();
 }
+//------------------------------------------------------
+// [FILE CLIENT]  Aggiungere intorno alla riga XX
+//------------------------------------------------------
+void sendHeadingSource(int mode) {
+    // Scegli la stringa di heading
+    String modeStr;
+    if (mode == 0) modeStr = "COMPASS";
+    else if (mode == 1) modeStr = "FUSION";
+    else if (mode == 2) modeStr = "EXPERIMENTAL";
+    else modeStr = "UNKNOWN";
+
+    // Crea messaggio tipo NMEA personalizzato
+    // Esempio: "$HEADING_SOURCE,MODE=FUSION*"
+    String msg = "$HEADING_SOURCE,MODE=" + modeStr + "*";
+
+    // Invia via UDP
+    udp.beginPacket(serverIP, serverPort);
+    udp.write((const uint8_t*)msg.c_str(), msg.length());
+    udp.endPacket();
+    
+    // NB: NON usiamo debugLog(...) per evitare i messaggi di debug
+    Serial.println("Inviato heading source -> " + msg);
+}
+
+
 
 // ###########################################
 // ### GESTIONE COMANDI ###
@@ -235,7 +279,7 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
 void updateConfig(String command) {
     if (!command.startsWith("SET:")) return;
     int eqPos = command.indexOf('=');
-    if(eqPos == -1) return;
+    if (eqPos == -1) return;
     String param = command.substring(4, eqPos);
     int value = command.substring(eqPos + 1).toInt();
     
@@ -269,7 +313,6 @@ void updateConfig(String command) {
         debugLog("Parametro T_max aggiornato: " + String(T_max));
     }
     
-    // Invia conferma dell'aggiornamento
     String confirmMsg = "$PARAM_UPDATE,";
     confirmMsg += param + "=" + String(value) + "*";
     udp.beginPacket(serverIP, serverPort);
@@ -277,26 +320,42 @@ void updateConfig(String command) {
     udp.endPacket();
 }
 
+void extendMotor(int speed) {
+    analogWrite(3, speed);
+    analogWrite(46, 0);
+}
+
+void retractMotor(int speed) {
+    analogWrite(3, 0);
+    analogWrite(46, speed);
+}
+
+void stopMotor() {
+    analogWrite(3, 0);
+    analogWrite(46, 0);
+}
+
 void handleCommandClient(String command) {
     debugLog("DEBUG(UDP): Comando ricevuto -> " + command);
-  if (command.startsWith("CMD:")) {
-    if (externalBearingEnabled) {  // Accetta il comando solo se la modalità è abilitata
-      int newBearing = command.substring(4).toInt();
-      headingCommand = newBearing;
-      Serial.print("DEBUG(UDP): Nuovo comando di bearing esterno ricevuto: ");
-    debugLog("Nuovo heading command: " + String(headingCommand));
-
-    } else {
-      debugLog("DEBUG(UDP): Ricevuto comando CMD: ma la modalità bearing esterno non è abilitata.");
+    
+    if (command.startsWith("CMD:")) {
+        if (externalBearingEnabled) {
+            int newBearing = command.substring(4).toInt();
+            headingCommand = newBearing;
+            Serial.print("DEBUG(UDP): Nuovo comando di bearing esterno ricevuto: ");
+            debugLog("Nuovo heading command: " + String(headingCommand));
+        } else {
+            debugLog("DEBUG(UDP): Ricevuto comando CMD: ma la modalità bearing esterno non è abilitata.");
+        }
     }
-  }
+    
     // Gestione OTA
-    if(command.startsWith("OTA_")) {
+    if (command.startsWith("OTA_")) {
         handleOTAData(command);
         return;
     }
     
-    // Comandi esistenti
+    // Controllo motore
     if (command == "ACTION:-1") {
         if (motorControllerState) {
             headingCommand -= 1;
@@ -341,16 +400,34 @@ void handleCommandClient(String command) {
         calibrationStartTime = millis();
         resetCalibrationData();
     } else if (command == "ACTION:GPS") {
-        useGPSHeading = !useGPSHeading;
+        headingSourceMode++;
+        if (headingSourceMode > 2) headingSourceMode = 0;
+        
+        sendHeadingSource(headingSourceMode);  // Notifica l'AP della nuova modalità
+        useGPSHeading = (headingSourceMode == 1);  // Imposta il flag in base alla modalità
+        
+        // Allinea headingCommand al nuovo heading in base alla modalità
+        if (headingSourceMode == 0) {
+            headingCommand = getCorrectedHeading();
+        } else if (headingSourceMode == 1) {
+            headingCommand = (int)round(getFusedHeading());
+        } else if (headingSourceMode == 2) {
+            headingCommand = (int)round(getExperimentalHeading());
+        }
+        
+        debugLog("Comando allineato al nuovo heading: " + String(headingCommand));
     } else if (command == "ACTION:C-GPS") {
         if (gps.course.isValid()) {
             int gpsHeading = (int)gps.course.deg();
-            compass.read();
-            int currentCompassHeading = getCorrectedHeading();
-            compassOffsetX = (gpsHeading - currentCompassHeading + 360) % 360;
-            EEPROM.write(0, compassOffsetX & 0xFF);
-            EEPROM.write(1, (compassOffsetX >> 8) & 0xFF);
+            int compassHeading = getCorrectedHeading();  // Con offset già applicato
+            headingOffset = (gpsHeading - compassHeading + 360) % 360;
+            EEPROM.write(6, headingOffset & 0xFF);
+            EEPROM.write(7, (headingOffset >> 8) & 0xFF);
             EEPROM.commit();
+            
+            debugLog("Offset bussola aggiornato da C-GPS: " + String(headingOffset));
+        } else {
+            debugLog("C-GPS fallito: GPS non valido");
         }
     } else if (command == "EXT_BRG_ENABLED") {
         externalBearingEnabled = true;
@@ -359,24 +436,6 @@ void handleCommandClient(String command) {
     } else if (command.startsWith("SET:")) {
         updateConfig(command);
     }
-}
-
-// ###########################################
-// ### CONTROLLO MOTORE ###
-// ###########################################
-void extendMotor(int speed) {
-    analogWrite(3, speed);
-    analogWrite(46, 0);
-}
-
-void retractMotor(int speed) {
-    analogWrite(3, 0);
-    analogWrite(46, speed);
-}
-
-void stopMotor() {
-    analogWrite(3, 0);
-    analogWrite(46, 0);
 }
 
 // ###########################################
@@ -451,7 +510,14 @@ void readSensors() {
 void setup() {
     Serial.begin(115200);
     EEPROM.begin(512);
-
+    // Legge offset software per la bussola (C-GPS)
+    headingOffset = EEPROM.read(6) | (EEPROM.read(7) << 8);
+    
+    // Carica offset bussola da EEPROM
+    compassOffsetX = EEPROM.read(0) | (EEPROM.read(1) << 8);
+    compassOffsetY = EEPROM.read(2) | (EEPROM.read(3) << 8);
+    compassOffsetZ = EEPROM.read(4) | (EEPROM.read(5) << 8);
+    
     // Carica parametri da EEPROM
     V_min = readParameterFromEEPROM(10);
     V_max = readParameterFromEEPROM(12);
@@ -460,19 +526,23 @@ void setup() {
     E_tol = readParameterFromEEPROM(18);
     T_min = readParameterFromEEPROM(20);
     T_max = readParameterFromEEPROM(22);
-
+    
     // Inizializza bussola
     Wire.begin(8, 9);
     compass.init();
-
+    
     // Inizializza GPS
     Serial2.begin(9600, SERIAL_8N1, 16, 17);
-
+    
     // Lettura heading iniziale
     compass.read();
-    currentHeading = getCorrectedHeading();
+    int headingCompass = getCorrectedHeading();
+    
+    currentHeading = headingCompass;
     headingCommand = currentHeading;
-
+    headingGyro = headingCompass;
+    headingExperimental = headingCompass;
+    
     // Configura WiFi
     setupWiFi("EUNO AP", "password");
 }
@@ -483,34 +553,46 @@ void loop() {
     // Aggiornamento sensori ad alta frequenza
     updateSensorFusion();
     
- // Gestione comandi UDP in arrivo
-int packetSize = udp.parsePacket();
-if (packetSize > 0) {
-    int len = udp.read(incomingPacket, 255);
-    if (len > 0) {
-        incomingPacket[len] = '\0';
-        String command = String(incomingPacket);
-        Serial.print("DEBUG(Client): Pacchetto UDP ricevuto -> ");
-        debugLog(command);
-        handleCommandClient(command);
+    // Gestione comandi UDP in arrivo
+    int packetSize = udp.parsePacket();
+    if (packetSize > 0) {
+        int len = udp.read(incomingPacket, 255);
+        if (len > 0) {
+            incomingPacket[len] = '\0';
+            String command = String(incomingPacket);
+            Serial.print("DEBUG(Client): Pacchetto UDP ricevuto -> ");
+            debugLog(command);
+            handleCommandClient(command);
+        }
     }
-}
-
+    
     // Lettura dati GPS
     while (Serial2.available()) {
         char c = Serial2.read();
         gps.encode(c);
     }
-
-    // Operazioni a 1Hz (intervallo 1000ms)
+    
+    // Operazioni a 1Hz (ogni 1000ms)
     static unsigned long last1HzUpdate = 0;
     if (currentMillis - last1HzUpdate >= 1000) {
         last1HzUpdate = currentMillis;
         
-        // Lettura heading
-        readSensors();
+        // Ottieni i tre heading:
+        int headingCompass = getCorrectedHeading();    // dalla bussola
+        float headingFusion = getFusedHeading();         // dal gyro che tende al GPS
+        updateExperimental(headingFusion);
+        float headingExp = getExperimentalHeading();     // fusione sperimentale
         
-        // Calcolo errore e invio dati
+        // Seleziona il currentHeading in base alla modalità attiva
+        if (headingSourceMode == 0) {
+            currentHeading = headingCompass;
+        } else if (headingSourceMode == 1) {
+            currentHeading = (int)round(headingFusion);
+        } else if (headingSourceMode == 2) {
+            currentHeading = (int)round(headingExp);
+        }
+        
+        // Calcola l'errore e invia i dati via UDP
         int diff = calculateDifference(currentHeading, headingCommand);
         sendNMEAData(currentHeading, headingCommand, diff, gps);
         
@@ -522,7 +604,7 @@ if (packetSize > 0) {
             stopMotor();
         }
     }
-
+    
     // Gestione calibrazione se attiva
     if (calibrationMode) {
         performCalibration(currentMillis);

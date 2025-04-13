@@ -2,10 +2,15 @@
 #include <Arduino.h> 
 #include "nmea_parser.h"  // per handleCommandAP() se serve in checkTouch
 
-
+#define NUM_MAIN_BUTTONS 6
+#define NUM_SECOND_BUTTONS 6
+#define TFT_DARKGREY  0x7BEF
+#define TFT_NAVY      0x000F
+#define TFT_DARKGREEN 0x03E0
+#define TFT_CYAN      0x07FF
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
-
+String infoLabels[6] = { "Heading", "Cmd", "Err", "GPS", "Spd", "" };
 
 // -------------------------------------
 String truncateString(String s, int maxChars) {
@@ -96,91 +101,118 @@ void updateDataBoxColor(TFT_eSPI &tft, int index, String value, uint16_t color) 
   tft.setTextColor(color, TFT_BLACK);
   tft.drawString(value, x + 5, y + 5);
 }
-// -------------------------------------
 void drawMenu(TFT_eSPI &tft, int menuMode, Parameter params[], int currentParamIndex, bool motorControllerState) {
-  tft.fillRect(0, staticAreaHeight, tft.width(), tft.height()-staticAreaHeight, 0x0000);
+  tft.fillRect(0, staticAreaHeight, tft.width(), tft.height() - staticAreaHeight, TFT_BLACK);
 
   if(menuMode == 0) {
-    // Menu principale
-    int rows = 2, cols = 3;
-    int btnW = tft.width() / cols;
-    int btnH = (tft.height() - staticAreaHeight) / rows;
-    for (int i = 0; i < NUM_MAIN_BUTTONS; i++){
-      int x = (i % cols) * btnW;
-      int y = staticAreaHeight + (i / cols) * btnH;
-      uint16_t color = buttonColorsMain[i];
-      tft.fillRoundRect(x, y, btnW, btnH, 10, color);
-      tft.drawRoundRect(x, y, btnW, btnH, 10, 0xFFFF);
+    // Menu principale - 6 pulsanti (3x2)
+    const int rows = 2;
+    const int cols = 3;
+    const int btnSpacing = 8;
+    const int btnW = (tft.width() - (cols + 1) * btnSpacing) / cols;
+    const int btnH = (tft.height() - staticAreaHeight - (rows + 1) * btnSpacing) / rows;
+
+    for(int i = 0; i < NUM_MAIN_BUTTONS; i++) {
+      int row = i / cols;
+      int col = i % cols;
+      int x = btnSpacing + col * (btnW + btnSpacing);
+      int y = staticAreaHeight + btnSpacing + row * (btnH + btnSpacing);
+      uint16_t baseColor = buttonColorsMain[i];
+      
+      // Ombreggiatura
+      tft.fillRoundRect(x + 2, y + 2, btnW, btnH, 12, TFT_DARKGREY);
+      
+      // Corpo pulsante con gradiente
+      tft.fillRoundRect(x, y, btnW, btnH, 12, baseColor);
+      tft.fillRectVGradient(x + 3, y + 3, btnW - 6, btnH - 6, 
+                          tft.color565(min(((baseColor >> 11) & 0x1F) + 5, 31),
+                                       min(((baseColor >> 5) & 0x3F) + 5, 63),
+                                       min((baseColor & 0x1F) + 5, 31)), 
+                          baseColor);
+      
+      // Bordo
+      tft.drawRoundRect(x, y, btnW, btnH, 12, TFT_WHITE);
+      
+      // Testo
       tft.setTextDatum(MC_DATUM);
-      tft.setTextSize(3);
-      // effetto ombra
-      tft.setTextColor(0x0000, color);
-      tft.drawString(mainButtonLabels[i], x + btnW/2 + 1, y + btnH/2 + 1);
-      // testo bianco
-      tft.setTextColor(0xFFFF, color);
+      tft.setTextSize(2);
+      tft.setTextColor(TFT_WHITE);
       tft.drawString(mainButtonLabels[i], x + btnW/2, y + btnH/2);
     }
   }
   else if(menuMode == 1) {
-    // Menu secondario
-    int btnCount = NUM_SECOND_BUTTONS;
-    int rowCount = 2;
-    int btnPerRow = btnCount / rowCount;
-    int btnH = (tft.height() - staticAreaHeight) / rowCount;
-    int btnW = tft.width() / btnPerRow;
-    for (int i = 0; i < btnCount; i++){
-      int x = (i % btnPerRow) * btnW;
-      int y = staticAreaHeight + (i / btnPerRow) * btnH;
-      uint16_t color = buttonColorsSecond[i];
-      tft.fillRoundRect(x, y, btnW, btnH, 10, color);
-      tft.drawRoundRect(x, y, btnW, btnH, 10, 0xFFFF);
+    // Menu secondario - 6 pulsanti (3x2)
+    const int rows = 2;
+    const int cols = 3;
+    const int btnSpacing = 8;
+    const int btnW = (tft.width() - (cols + 1) * btnSpacing) / cols;
+    const int btnH = (tft.height() - staticAreaHeight - (rows + 1) * btnSpacing) / rows;
+
+    for(int i = 0; i < NUM_SECOND_BUTTONS; i++) {
+      int row = i / cols;
+      int col = i % cols;
+      int x = btnSpacing + col * (btnW + btnSpacing);
+      int y = staticAreaHeight + btnSpacing + row * (btnH + btnSpacing);
+      uint16_t baseColor = buttonColorsSecond[i];
+      
+      // Effetto 3D
+      tft.fillRoundRect(x + 2, y + 2, btnW, btnH, 10, TFT_DARKGREY); // Ombra
+      tft.fillRoundRect(x, y, btnW, btnH, 10, baseColor); // Corpo
+      
+      // Highlight superiore
+      uint16_t highlight = tft.color565(
+        min(((baseColor >> 11) & 0x1F) + 10, 31),
+        min(((baseColor >> 5) & 0x3F) + 10, 63),
+        min((baseColor & 0x1F) + 10, 31)
+      );
+      tft.fillRect(x + 3, y + 3, btnW - 6, 8, highlight);
+      
+      // Bordo con effetto metallico
+      tft.drawRoundRect(x, y, btnW, btnH, 10, TFT_WHITE);
+      tft.drawRoundRect(x + 1, y + 1, btnW - 2, btnH - 2, 8, tft.color565(100, 100, 100));
+      
+      // Testo - versione per array di const char*
       tft.setTextDatum(MC_DATUM);
-      tft.setTextSize(3);
-      tft.setTextColor(0xFFFF, color);
+      tft.setTextSize(strlen(secondButtonLabels[i]) <= 6 ? 2 : 1); // Adatta dimensione testo
+      tft.setTextColor(TFT_WHITE);
       tft.drawString(secondButtonLabels[i], x + btnW/2, y + btnH/2);
     }
   }
   else if(menuMode == 2) {
-    // Esempio di menu “parametri”
-    int settingsH = tft.height() - staticAreaHeight;
-    int upperH = (settingsH * 55) / 100;
-    int lowerY = staticAreaHeight + upperH;
-    tft.drawFastHLine(0, lowerY, tft.width(), 0xFFFF);
-    int leftW = (2 * tft.width()) / 3;
-    int rightW = tft.width() - leftW;
-
-    String paramName = String(params[currentParamIndex].name);
-    String headerStr = paramName + ": " + String(params[currentParamIndex].value);
-    tft.setTextDatum(ML_DATUM);
-    tft.setTextSize(3);
-    tft.setTextColor(0xFFFF, 0x0000);
-    tft.drawString(headerStr, 10, staticAreaHeight + 20);
-
-    // Tasto NEXT
-    int nextX = leftW;
-    int nextY = staticAreaHeight;
-    tft.fillRoundRect(nextX, nextY, rightW, upperH, 10, 0x001F /* blue */);
-    tft.drawRoundRect(nextX, nextY, rightW, upperH, 10, 0xFFFF);
+    // Menu parametri - Stile moderno
+    const int headerHeight = 50;
+    const int sliderHeight = 30;
+    
+    // Header
+    tft.fillRoundRect(0, staticAreaHeight, tft.width(), headerHeight, 5, TFT_NAVY);
+    String headerStr = String(params[currentParamIndex].name) + ": " + String(params[currentParamIndex].value);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextSize(3);
-    tft.setTextColor(0xFFFF, 0x001F);
-    tft.drawString("NEXT", nextX + rightW/2, nextY + upperH/2);
-
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(headerStr, tft.width()/2, staticAreaHeight + headerHeight/2);
+    
+    // Pulsante NEXT
+    const int nextBtnWidth = 80;
+    tft.fillRoundRect(tft.width() - nextBtnWidth - 10, staticAreaHeight + 5, nextBtnWidth, headerHeight - 10, 5, TFT_DARKGREEN);
+    tft.drawRoundRect(tft.width() - nextBtnWidth - 10, staticAreaHeight + 5, nextBtnWidth, headerHeight - 10, 5, TFT_WHITE);
+    tft.drawString("NEXT", tft.width() - nextBtnWidth/2 - 10, staticAreaHeight + headerHeight/2);
+    
     // Slider
-    int sliderY_local = lowerY;  
-    int sliderMargin = 20;
-    int sliderHeight_calc = tft.height() - lowerY;
-    tft.drawRect(sliderX - sliderMargin, sliderY_local, sliderWidth + 2*sliderMargin, sliderHeight_calc, 0xFFFF);
-
-    float ratio = (float)(params[currentParamIndex].value - params[currentParamIndex].minValue) /
-                  (params[currentParamIndex].maxValue - params[currentParamIndex].minValue);
-    if(ratio < 0) ratio = 0;
-    if(ratio > 1) ratio = 1;
-    int fillWidth = ratio * sliderWidth;
-    tft.fillRect(sliderX - sliderMargin, sliderY_local, fillWidth + 2*sliderMargin, sliderHeight_calc, 0x07E0);
+    int sliderY = staticAreaHeight + headerHeight + 20;
+    float ratio = (float)(params[currentParamIndex].value - params[currentParamIndex].minValue) / 
+                 (params[currentParamIndex].maxValue - params[currentParamIndex].minValue);
+    int sliderPos = sliderX + (sliderWidth * ratio);
+    
+    // Track
+    tft.fillRoundRect(sliderX, sliderY + sliderHeight/2 - 4, sliderWidth, 8, 4, TFT_DARKGREY);
+    tft.fillRoundRect(sliderX, sliderY + sliderHeight/2 - 4, sliderPos - sliderX, 8, 4, TFT_CYAN);
+    
+    // Thumb
+    tft.fillCircle(sliderPos, sliderY + sliderHeight/2, 10, TFT_WHITE);
+    tft.drawCircle(sliderPos, sliderY + sliderHeight/2, 10, TFT_DARKGREY);
+    tft.fillCircle(sliderPos, sliderY + sliderHeight/2, 6, TFT_CYAN);
   }
 }
-
 // -------------------------------------
 void checkTouch(
   TFT_eSPI &tft,
@@ -195,63 +227,76 @@ void checkTouch(
   unsigned long &buttonActionTimestamp,
   unsigned long &lastTouchTime
 ) {
-  if(buttonActionState == BAS_HIGHLIGHT && (millis() - buttonActionTimestamp >= 100)) {
-    // processPendingAction
-    if(menuMode == 2 && pendingButtonType == 2 && pendingAction == "NEXT") {
-      // Spediamo param via UDP
+  // Variabili per NEXT e slider
+  int settingsH = tft.height() - staticAreaHeight;
+  int upperH = (settingsH * 55) / 100;
+  int lowerY = staticAreaHeight + upperH;
+  int leftW = (2 * tft.width()) / 3;
+  int rightW = tft.width() - leftW;
+
+  if (buttonActionState == BAS_HIGHLIGHT && (millis() - buttonActionTimestamp >= 100)) {
+    // Esegui l’azione pendente
+    if (menuMode == 2 && pendingButtonType == 2 && pendingAction == "NEXT") {
       String udpCmd = "SET:" + String(params[currentParamIndex].name) + "=" + String(params[currentParamIndex].value);
       handleCommandAP(udpCmd);
-
       currentParamIndex++;
-      if(currentParamIndex >= NUM_PARAMS) {
-        menuMode = 0;
-      }
-    }
-    else {
-      if(pendingAction == "MENU:SWITCH") {
+      if (currentParamIndex >= NUM_PARAMS) menuMode = 0;
+    } else {
+      if (pendingAction == "MENU:SWITCH") {
         menuMode = (menuMode == 0) ? 1 : 0;
       }
-      else if(pendingAction == "ACTION:TOGGLE") {
+      else if (pendingAction == "ACTION:TOGGLE") {
         motorControllerState = !motorControllerState;
         updateDataBox(tft, 5, "");
         handleCommandAP("ACTION:TOGGLE");
       }
-      else if(pendingAction == "IMP") {
+      else if (pendingAction == "IMP") {
         menuMode = 2;
         currentParamIndex = 0;
       }
+      else if (pendingAction == "ACTION:EXT_BRG") {
+        externalBearingEnabled = !externalBearingEnabled;
+        String cmdToClient = externalBearingEnabled ? "EXT_BRG_ENABLED" : "EXT_BRG_DISABLED";
+        udp.beginPacket(clientIP, clientPort);
+        udp.print(cmdToClient);
+        udp.endPacket();
+        updateDataBoxColor(tft, 1, externalBearingEnabled ? "ON" : "OFF", externalBearingEnabled ? TFT_GREEN : TFT_RED);
+      }
       else {
-        handleCommandAP(pendingAction);
+        handleCommandAP(pendingAction);  // Per +1, -1, +10, -10, GPS, C-GPS
       }
     }
+
     buttonActionState = BAS_ACTION_SENT;
     buttonActionTimestamp = millis();
   }
-  else if(buttonActionState == BAS_ACTION_SENT && (millis() - buttonActionTimestamp >= 200)) {
+
+  else if (buttonActionState == BAS_ACTION_SENT && (millis() - buttonActionTimestamp >= 200)) {
     drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
     buttonActionState = BAS_IDLE;
   }
 
-  if(buttonActionState != BAS_IDLE) return;
+  if (buttonActionState != BAS_IDLE) return;
 
-  if(touchscreen.tirqTouched() && touchscreen.touched()){
+  // Gestione tocco
+  if (touchscreen.tirqTouched() && touchscreen.touched()) {
     TS_Point p = touchscreen.getPoint();
-    if(p.z < 50 || p.x < 100 || p.y < 100) return;
-    if(millis() - lastTouchTime < touchDebounceDelay) return;
+    if (p.z < 20 || p.x < 100 || p.y < 100) return;
+    if (millis() - lastTouchTime < touchDebounceDelay) return;
     lastTouchTime = millis();
 
     int x = map(p.x, 200, 3700, 0, tft.width());
     int y = map(p.y, 240, 3800, 0, tft.height());
     Serial.printf("TOUCH(Display): x=%d, y=%d\n", x, y);
 
-    if(menuMode == 0) {
+    if (menuMode == 0) {
       int rows = 2, cols = 3;
       int btnW = tft.width() / cols;
       int btnH = (tft.height() - staticAreaHeight) / rows;
-      for(int i = 0; i < NUM_MAIN_BUTTONS; i++){
+      for (int i = 0; i < NUM_MAIN_BUTTONS; i++) {
         int bx = (i % cols) * btnW;
         int by = staticAreaHeight + (i / cols) * btnH;
-        if(x >= bx && x <= bx + btnW && y >= by && y <= by + btnH){
+        if (x >= bx && x <= bx + btnW && y >= by && y <= by + btnH) {
           tft.fillRoundRect(bx, by, btnW, btnH, 10, 0xFFFF);
           delay(100);
           pendingAction = mainButtonActions[i];
@@ -262,15 +307,17 @@ void checkTouch(
         }
       }
     }
-    else if(menuMode == 1) {
+
+    else if (menuMode == 1) {
       int row1Count = 3;
       int row1H = (tft.height() - staticAreaHeight) / 2;
       int btnW1 = tft.width() / row1Count;
       bool found = false;
-      for (int i = 0; i < row1Count; i++){
+
+      for (int i = 0; i < row1Count; i++) {
         int bx = i * btnW1;
         int by = staticAreaHeight;
-        if(x >= bx && x <= bx + btnW1 && y >= by && y <= by + row1H){
+        if (x >= bx && x <= bx + btnW1 && y >= by && y <= by + row1H) {
           tft.fillRoundRect(bx, by, btnW1, row1H, 10, 0xFFFF);
           delay(100);
           pendingAction = secondButtonActions[i];
@@ -281,13 +328,14 @@ void checkTouch(
           break;
         }
       }
-      if(!found) {
+
+      if (!found) {
         int row2Count = NUM_SECOND_BUTTONS - row1Count;
         int btnW2 = tft.width() / row2Count;
         int by = staticAreaHeight + row1H;
-        for (int i = 0; i < row2Count; i++){
+        for (int i = 0; i < row2Count; i++) {
           int bx = i * btnW2;
-          if(x >= bx && x <= bx + btnW2 && y >= by && y <= by + row1H){
+          if (x >= bx && x <= bx + btnW2 && y >= by && y <= by + row1H) {
             tft.fillRoundRect(bx, by, btnW2, row1H, 10, 0xFFFF);
             delay(100);
             pendingAction = secondButtonActions[row1Count + i];
@@ -299,32 +347,27 @@ void checkTouch(
         }
       }
     }
-    else if(menuMode == 2) {
-      // Tocco in "param mode"
-      int settingsH = tft.height() - staticAreaHeight;
-      int upperH = (settingsH * 55) / 100;
-      int lowerY = staticAreaHeight + upperH;
-      int leftW = (2 * tft.width()) / 3;
 
-      if(y >= staticAreaHeight && y < lowerY) {
-        if(x >= leftW) {
-          // Tasto NEXT
+    else if (menuMode == 2) {
+      // NEXT
+      if (y >= staticAreaHeight && y < lowerY) {
+        if (x >= leftW - 10 && x <= leftW + rightW + 10) {
           pendingAction = "NEXT";
           pendingButtonType = 2;
           buttonActionState = BAS_HIGHLIGHT;
           buttonActionTimestamp = millis();
         }
       }
-      else if(y >= lowerY) {
-        // Slider
-        int sliderY_local = lowerY;  
+      // SLIDER
+      else if (y >= lowerY) {
+        int sliderY_local = lowerY;
         int sliderMargin = 20;
         int sliderHeight_calc = tft.height() - lowerY;
-        if(x >= sliderX - sliderMargin && x <= sliderX + sliderWidth + sliderMargin &&
-           y >= sliderY_local && y <= sliderY_local + sliderHeight_calc) {
+        if (x >= sliderX - sliderMargin && x <= sliderX + sliderWidth + sliderMargin &&
+            y >= sliderY_local && y <= sliderY_local + sliderHeight_calc) {
           float ratio = (float)(x - sliderX) / sliderWidth;
-          if(ratio < 0) ratio = 0;
-          if(ratio > 1) ratio = 1;
+          if (ratio < 0) ratio = 0;
+          if (ratio > 1) ratio = 1;
           int newVal = params[currentParamIndex].minValue + ratio * (params[currentParamIndex].maxValue - params[currentParamIndex].minValue);
           params[currentParamIndex].value = newVal;
           drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
@@ -333,3 +376,4 @@ void checkTouch(
     }
   }
 }
+

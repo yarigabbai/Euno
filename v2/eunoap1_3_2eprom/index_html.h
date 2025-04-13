@@ -178,9 +178,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     <div id="menu" class="buttons">
       <button class="blue" onclick="send('ACTION:-1')">-1</button>
       <button class="blue" onclick="send('ACTION:+1')">+1</button>
-      <button class="orange" onclick="send('ACTION:TOGGLE')">ON/OFF</button>
       <button class="blue" onclick="send('ACTION:-10')">-10</button>
       <button class="blue" onclick="send('ACTION:+10')">+10</button>
+       <button class="orange" onclick="send('ACTION:TOGGLE')">ON/OFF</button>
       <button class="orange" onclick="toggleMenu()">MENU</button>
     </div>
 

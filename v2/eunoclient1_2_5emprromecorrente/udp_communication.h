@@ -14,6 +14,10 @@ extern IPAddress serverIP;
 extern unsigned int serverPort;
 extern char incomingPacket[255];
 
+int readParameterFromEEPROM(int address) {
+  return EEPROM.read(address) | (EEPROM.read(address + 1) << 8);
+}
+
 extern int headingCommand;
 extern int currentHeading;
 extern bool useGPSHeading;
@@ -29,36 +33,38 @@ extern bool otaInProgress;
 extern uint32_t otaSize;
 extern uint32_t otaReceived;
 
-void updateConfig(String command);
-void handleOTAData(String command);
+// Aggiunta delle funzioni per la gestione della EEPROM
+#include <EEPROM.h>
+#define EEPROM_SIZE 64
 
-void setupWiFi(const char* ssid, const char* password) {
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    debugLog("\nConnesso al WiFi");
-    udp.begin(serverPort);
+int readParameterFromEEPROM(int addr) {
+    int low  = EEPROM.read(addr);
+    int high = EEPROM.read(addr + 1);
+    return (high << 8) | low;
 }
 
-void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus gps) {
-    String nmeaData = "$AUTOPILOT,";
-    nmeaData += "HEADING=" + String(currentHeading) + ",";
-    nmeaData += "COMMAND=" + String(headingCommand) + ",";
-    nmeaData += "ERROR=" + String(error) + ",";
-    nmeaData += "GPS_HEADING=" + (gps.course.isValid() ? String(gps.course.deg()) : "N/A") + ",";
-    nmeaData += "GPS_SPEED=" + (gps.speed.isValid() ? String(gps.speed.knots()) : "N/A") + ",";
-    nmeaData += "E_min=" + String(E_min) + ",";
-    nmeaData += "E_max=" + String(E_max) + ",";
-    nmeaData += "E_tol=" + String(E_tol) + ",";
-    nmeaData += "T_min=" + String(T_min) + ",";
-    nmeaData += "T_max=" + String(T_max) + "*";
-    
-    udp.beginPacket(serverIP, serverPort);
-    udp.write((const uint8_t*)nmeaData.c_str(), nmeaData.length());
-    udp.endPacket();
-    debugLog("DEBUG(UDP): Dati NMEA inviati -> " + nmeaData);
+void writeParameterToEEPROM(int addr, int value) {
+    EEPROM.write(addr,     value & 0xFF);
+    EEPROM.write(addr + 1, (value >> 8) & 0xFF);
+    EEPROM.commit();
+}
+
+void updateConfig(String command) {
+    int sep = command.indexOf('=');
+    if (sep == -1) return;
+
+    String key = command.substring(4, sep);
+    int val = command.substring(sep + 1).toInt();
+
+    if (key == "V_min")      { V_min = val; writeParameterToEEPROM(10, val); }
+    else if (key == "V_max") { V_max = val; writeParameterToEEPROM(12, val); }
+    else if (key == "E_min") { E_min = val; writeParameterToEEPROM(14, val); }
+    else if (key == "E_max") { E_max = val; writeParameterToEEPROM(16, val); }
+    else if (key == "E_tol") { E_tol = val; writeParameterToEEPROM(18, val); }
+    else if (key == "T_min") { T_min = val; writeParameterToEEPROM(20, val); }
+    else if (key == "T_max") { T_max = val; writeParameterToEEPROM(22, val); }
+
+    debugLog("DEBUG(UDP): Parametro aggiornato: " + key + " = " + String(val));
 }
 
 void handleCommandClient(String command) {

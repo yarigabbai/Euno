@@ -17,6 +17,8 @@ using fs::FS;
 #include <math.h>
 #include <string.h>
 #include <Update.h>
+#include <EEPROM.h>
+#define EEPROM_SIZE 64
 
 // Modifica l'include di WebServer per forzare il namespace corretto
 
@@ -31,6 +33,7 @@ using fs::FS;
 
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
+int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
 
 
 // Configurazione rete
@@ -49,6 +52,25 @@ unsigned int clientPort = 4210;
 TFT_eSPI tft = TFT_eSPI();
 SPIClass touchscreenSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+
+// salvataggio parametri
+void saveParamsToEEPROM() {
+  for (int i = 0; i < NUM_PARAMS; i++) {
+    EEPROM.write(i * 2,     params[i].value & 0xFF);
+    EEPROM.write(i * 2 + 1, (params[i].value >> 8) & 0xFF);
+  }
+  EEPROM.commit();
+  debugLog("DEBUG(AP): Parametri salvati in EEPROM.");
+}
+
+void loadParamsFromEEPROM() {
+  for (int i = 0; i < NUM_PARAMS; i++) {
+    int low  = EEPROM.read(i * 2);
+    int high = EEPROM.read(i * 2 + 1);
+    params[i].value = (high << 8) | low;
+  }
+  debugLog("DEBUG(AP): Parametri caricati da EEPROM.");
+}
 
 // Variabili di stato
 bool motorControllerState = false;
@@ -115,6 +137,20 @@ void setup() {
   Serial.print("AP IP: ");
   Serial.println(WiFi.softAPIP());
   Serial.printf("UDP server on port %d\n", localUdpPort);
+
+//eeprom
+EEPROM.begin(EEPROM_SIZE);
+loadParamsFromEEPROM();
+// Aggiorna le variabili globali reali
+for (int i = 0; i < NUM_PARAMS; i++) {
+  if      (String(params[i].name) == "V_min") V_min = params[i].value;
+  else if (String(params[i].name) == "V_max") V_max = params[i].value;
+  else if (String(params[i].name) == "E_min") E_min = params[i].value;
+  else if (String(params[i].name) == "E_max") E_max = params[i].value;
+  else if (String(params[i].name) == "E_tolleranza") E_tol = params[i].value;
+  else if (String(params[i].name) == "T_min") T_min = params[i].value;
+  else if (String(params[i].name) == "T_max") T_max = params[i].value;
+}
 
   // Disegno iniziale
  drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
