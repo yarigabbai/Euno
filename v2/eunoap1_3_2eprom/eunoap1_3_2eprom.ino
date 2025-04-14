@@ -3,7 +3,7 @@
  * 1 fatto, 2 fatto, 3 fatto, 6 fatto
 
  **********************************************************/
-//sto cazo
+
 // Includi prima FS con namespace esplicito
 #include "FS.h"
 using fs::FS; 
@@ -33,7 +33,7 @@ using fs::FS;
 
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
-int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
+int V_min, V_max, E_min, E_max, E_tol, T_min, T_max, T_pause;
 
 
 // Configurazione rete
@@ -88,7 +88,7 @@ Parameter params[NUM_PARAMS] = {
   { "E_min", 5, 0, 100 },
   { "E_max", 40, 0, 100 },
   { "E_tolleranza", 1, 0, 10 },
-  { "T.S.min", 4, 0, 20 },
+  { "T_min", 4, 0, 20 },
   { "T_max", 10, 0, 20 },
   { "T_pause", 0, 0, 9 }  // Valore da 0 a 9 (0–900 ms)
 
@@ -150,6 +150,8 @@ for (int i = 0; i < NUM_PARAMS; i++) {
   else if (String(params[i].name) == "E_tolleranza") E_tol = params[i].value;
   else if (String(params[i].name) == "T_min") T_min = params[i].value;
   else if (String(params[i].name) == "T_max") T_max = params[i].value;
+  else if (String(params[i].name) == "T_pause") T_pause = params[i].value;
+
 }
 
   // Disegno iniziale

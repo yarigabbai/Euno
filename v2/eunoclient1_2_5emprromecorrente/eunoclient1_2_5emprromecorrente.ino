@@ -11,7 +11,7 @@
 #include "euno_debug.h"
 
 // ###########################################
-// ### VARIABILI GLOBALI CONDIVISE ###
+// gg### VARIABILI GLOBALI CONDIVISE ###
 // ###########################################
 WiFiUDP udp;
 IPAddress serverIP(192, 168, 4, 1);
@@ -20,6 +20,7 @@ char incomingPacket[255];
 int headingSourceMode = 0;  // 0 = COMPASS, 1 = FUSION, 2 = EXPERIMENTAL
 int headingOffset = 0;      // Offset software per la bussola (impostato con C-GPS)
 float smoothedSpeed = 0.0;
+int T_pause = 0;  // Valori da 0 a 9 (cioè da 0 a 900 ms)
 
 //monitor corrente  su pin 19 e 20 implementare l10 letture in un minuto, poin media e 
 //poi 3 volte quella media ferma il motore in quella direzione
@@ -241,7 +242,8 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
     nmeaData += "E_max=" + String(E_max) + ",";
     nmeaData += "E_tol=" + String(E_tol) + ",";
     nmeaData += "T_min=" + String(T_min) + ",";
-    nmeaData += "T_max=" + String(T_max) + "*";
+    nmeaData += "T_max=" + String(T_max) + ",";
+    nmeaData += "T_pause=" + String(T_pause) + "*";
     
     udp.beginPacket(serverIP, serverPort);
     udp.write((const uint8_t*)nmeaData.c_str(), nmeaData.length());
@@ -312,6 +314,12 @@ void updateConfig(String command) {
         saveParameterToEEPROM(22, T_max);
         debugLog("Parametro T_max aggiornato: " + String(T_max));
     }
+    else if (param == "T_pause") {
+    T_pause = value;
+    writeParameterToEEPROM(24, T_pause);  // usa l'indirizzo 24, se non è già usato da altro
+    debugLog("Parametro T_pause aggiornato: " + String(T_pause));
+}
+
     
     String confirmMsg = "$PARAM_UPDATE,";
     confirmMsg += param + "=" + String(value) + "*";
@@ -526,7 +534,8 @@ void setup() {
     E_tol = readParameterFromEEPROM(18);
     T_min = readParameterFromEEPROM(20);
     T_max = readParameterFromEEPROM(22);
-    
+    T_pause = readParameterFromEEPROM(24);
+
     // Inizializza bussola
     Wire.begin(8, 9);
     compass.init();
@@ -598,8 +607,16 @@ void loop() {
         
         // Controllo motore
         if (motorControllerState) {
+          int pauseTime = T_pause * 100;         // da 0 a 900 ms
+int activeTime = 1000 - pauseTime;     // il tempo restante per movimento
+if (activeTime < 200) activeTime = 200; // protezione attuatore
+
             int velocita_correzione = calcola_velocita_e_verso(currentHeading, headingCommand);
             gestisci_attuatore(velocita_correzione);
+delay(activeTime);
+stopMotor();
+delay(pauseTime);
+
         } else {
             stopMotor();
         }
