@@ -401,8 +401,18 @@ void handleCommandClient(String command) {
             stopMotor();
         }
     } else if (command == "ACTION:TOGGLE") {
-        motorControllerState = !motorControllerState;
-        if (motorControllerState) headingCommand = currentHeading;
+    motorControllerState = !motorControllerState;
+    if (motorControllerState) {
+        headingCommand = currentHeading;
+        debugLog("DEBUG(UDP): Motor controller acceso. Heading resettato.");
+        udp.beginPacket(serverIP, serverPort);
+        udp.print("MOTOR:ON");
+        udp.endPacket();
+    } else {
+        debugLog("DEBUG(UDP): Motor controller spento.");
+        udp.beginPacket(serverIP, serverPort);
+        udp.print("MOTOR:OFF");
+        udp.endPacket();  }
     } else if (command == "ACTION:CAL") {
         calibrationMode = true;
         calibrationStartTime = millis();

@@ -27,7 +27,7 @@ void drawStaticLayout(TFT_eSPI &tft, bool motorControllerState, bool externalBea
   for (int i = 0; i < 6; i++){
     int x = (i % cols) * boxW, y = (i / cols) * boxH;
     if(i == 5){
-      uint16_t colMC = motorControllerState ? 0x07E0 /*TFT_GREEN*/ : 0xF800 /*TFT_RED*/;
+  uint16_t colMC = 0x0000;  // ← NERO fisso
       tft.fillRoundRect(x, y, boxW, boxH, 5, colMC);
       tft.drawRoundRect(x, y, boxW, boxH, 5, 0xFFFF /*TFT_WHITE*/);
       tft.setTextDatum(CC_DATUM);
@@ -74,10 +74,15 @@ void updateDataBox(TFT_eSPI &tft, int index, String value) {
     tft.setTextColor(0xFFE0, 0x0000);
     tft.drawString(value, x + boxW/2, y + boxH/2);
 
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextSize(1);
-    tft.setTextColor(0x07FF, 0x0000);
-    tft.drawString(infoLabels[index], x + 2, y + 2);
+  // 🧽 Pulisce l’area dove viene scritta la label (in alto a sinistra)
+tft.fillRect(x + 2, y + 2, boxW - 4, 14, 0x0000);
+
+// ✍️ Ridisegna la label attuale
+tft.setTextDatum(TL_DATUM);
+tft.setTextSize(1);
+tft.setTextColor(0x07FF, 0x0000);
+tft.drawString(infoLabels[index], x + 2, y + 2);
+
   } else {
     // Riquadro 5: motorControllerState / autopilot on/off
     extern bool motorControllerState; // definito nel .ino
@@ -214,6 +219,31 @@ void drawMenu(TFT_eSPI &tft, int menuMode, Parameter params[], int currentParamI
   }
 }
 // -------------------------------------
+void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn) {
+  const int index = 2;  // ON/OFF è il terzo tasto (in alto a destra)
+  const int cols = 3;
+  const int rows = 2;
+  const int btnSpacing = 8;
+  const int btnW = (tft.width() - (cols + 1) * btnSpacing) / cols;
+  const int btnH = (tft.height() - staticAreaHeight - (rows + 1) * btnSpacing) / rows;
+  int col = index % cols;
+  int row = index / cols;
+  int x = btnSpacing + col * (btnW + btnSpacing);
+  int y = staticAreaHeight + btnSpacing + row * (btnH + btnSpacing);
+
+  uint16_t color = isOn ? TFT_GREEN : TFT_RED;
+  String label = isOn ? "ON" : "OFF";
+
+  tft.fillRoundRect(x, y, btnW, btnH, 12, color);
+  tft.drawRoundRect(x, y, btnW, btnH, 12, TFT_WHITE);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, color);
+  tft.drawString(label, x + btnW / 2, y + btnH / 2);
+}
+
+
+
 void checkTouch(
   TFT_eSPI &tft,
   XPT2046_Touchscreen &touchscreen,
@@ -245,11 +275,10 @@ void checkTouch(
       if (pendingAction == "MENU:SWITCH") {
         menuMode = (menuMode == 0) ? 1 : 0;
       }
-      else if (pendingAction == "ACTION:TOGGLE") {
-        motorControllerState = !motorControllerState;
-        updateDataBox(tft, 5, "");
-        handleCommandAP("ACTION:TOGGLE");
-      }
+     else if (pendingAction == "ACTION:TOGGLE") {
+  handleCommandAP("ACTION:TOGGLE");
+  // Aspettiamo la conferma reale dal client
+}
       else if (pendingAction == "IMP") {
         menuMode = 2;
         currentParamIndex = 0;
@@ -287,7 +316,7 @@ void checkTouch(
 
     int x = map(p.x, 200, 3700, 0, tft.width());
     int y = map(p.y, 240, 3800, 0, tft.height());
-    Serial.printf("TOUCH(Display): x=%d, y=%d\n", x, y);
+    //Serial.printf("TOUCH(Display): x=%d, y=%d\n", x, y);
 
     if (menuMode == 0) {
       int rows = 2, cols = 3;

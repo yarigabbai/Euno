@@ -356,6 +356,19 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       else if (msg === "OTA_COMPLETE_CLIENT") {
         showOtaBanner("OTA Client completato con successo!");
       }
+      else if (msg === "MOTOR:ON") {
+  const el = document.getElementById("statusBox");
+  const txt = el.querySelector(".value");
+  txt.innerText = "ON";
+  el.className = "box green";
+}
+else if (msg === "MOTOR:OFF") {
+  const el = document.getElementById("statusBox");
+  const txt = el.querySelector(".value");
+  txt.innerText = "OFF";
+  el.className = "box red";
+}
+
     };
 
     function showOtaBanner(text) {
@@ -370,7 +383,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     function send(cmd) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(cmd);
-        if (cmd === "ACTION:TOGGLE") toggleStatus();
+     
       }
     }
 

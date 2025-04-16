@@ -26,6 +26,9 @@ extern WiFiUDP udp;
 extern int lastValidExtBearing;
 extern unsigned long lastExtBearingTime;
 extern WebSocketsServer webSocket;
+int headingSourceIndex = 0; // 0 = Compass, 1 = Fusion, 2 = Experimental
+String headingLabelText = "H.Compass"; // testo da mostrare nel box heading
+
 
 // ===============================
 // parseNMEA: elabora i messaggi in arrivo
@@ -50,8 +53,11 @@ void parseNMEA(String nmea,
     String gpsSpeed   = getStringValue(nmea, "GPS_SPEED");
 
     // Se vuoi che la label “Heading” rifletta headingSourceLabel
-    infoLabels[0] = headingSourceLabel;
-    updateDataBox(tft, 0, String(heading));
+
+
+updateDataBox(tft, 0, String(heading));
+
+
 
     // Aggiorna label e valore “Cmd”
     // Se EXT BRG è abilitato, la label diventa “CMD BRG”
@@ -70,7 +76,7 @@ void parseNMEA(String nmea,
     // GPS speed
     updateDataBox(tft, 4, gpsSpeed);
     // Box 5 vuoto
-    updateDataBox(tft, 5, "");
+    //updateDataBox(tft, 5, "");
   }
   else if (nmea.startsWith("$GPRMB")) {
     // =======================
@@ -124,6 +130,18 @@ void parseNMEA(String nmea,
       updateDataBox(tft, 5, "OTA DONE");
     }
   }
+
+ else if (nmea.startsWith("MOTOR:")) {
+  if (nmea == "MOTOR:ON") {
+    motorControllerState = true;
+    updateMainButtonONOFF(tft, true);   // ✅ aggiorna tasto ON/OFF
+  } else if (nmea == "MOTOR:OFF") {
+    motorControllerState = false;
+    updateMainButtonONOFF(tft, false);  // ✅ aggiorna tasto ON/OFF
+  }
+}
+
+
   else if (nmea.startsWith("$PARAM_UPDATE,")) {
     // =======================
     // Aggiornamento parametri
@@ -131,24 +149,52 @@ void parseNMEA(String nmea,
     String fullField = getFieldNMEA(nmea, 1);
     String param = fullField.substring(0, fullField.indexOf('='));
     String value = fullField.substring(fullField.indexOf('=') + 1);
-    updateDataBox(tft, 5, param + "=" + value);
+   // updateDataBox(tft, 5, param + "=" + value);
     delay(2000);
-    updateDataBox(tft, 5, motorControllerState ? "ON" : "OFF");
+    //updateDataBox(tft, 5, motorControllerState ? "ON" : "OFF");
   }
-  else if (nmea.startsWith("$HEADING_SOURCE,")) {
-    // =======================
-    // Ricevuta la modalità di heading
-    // =======================
-    String modeStr = getStringValue(nmea, "MODE"); 
-    if      (modeStr == "COMPASS")      headingSourceLabel = "H.Compass";
-    else if (modeStr == "FUSION")       headingSourceLabel = "H.Gyro";
-    else if (modeStr == "EXPERIMENTAL") headingSourceLabel = "H.Expmt";
-    else                                headingSourceLabel = "Heading";
+else if (nmea.startsWith("$HEADING_SOURCE,")) {
+    String modeStr = getStringValue(nmea, "MODE");
 
-    // Ridisegna il riquadro 0
-    updateDataBox(tft, 0, "N/A");
-  }
+    if (modeStr == "COMPASS") {
+        headingSourceIndex = 0;
+        infoLabels[0] = "H.Compass";
+    }
+    else if (modeStr == "FUSION") {
+        headingSourceIndex = 1;
+        infoLabels[0] = "H.Gyro";
+    }
+    else if (modeStr == "EXPERIMENTAL") {
+        headingSourceIndex = 2;
+        infoLabels[0] = "H.Expmt";
+    }
+    else {
+        headingSourceIndex = -1;
+        infoLabels[0] = "Heading";
+    }
+
+    // Forza il ridisegno completo del riquadro
+    int boxW = tft.width() / 3;
+    int boxH = staticAreaHeight / 2;
+    int x = 0; // Prima colonna
+    int y = 0; // Prima riga
+    
+    // Pulisci l'area della label
+    tft.fillRect(x + 2, y + 2, boxW - 4, 14, TFT_BLACK);
+    
+    // Ridisegna la label
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.drawString(infoLabels[0], x + 2, y + 2);
+    
+    // Aggiorna il valore (usa il valore corrente o "↻" temporaneo)
+    updateDataBox(tft, 0, "↻");
 }
+}
+
+
+
 extern int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
 extern void saveParamsToEEPROM();
 

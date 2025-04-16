@@ -22,6 +22,7 @@ struct Parameter {
 };
 extern Parameter params[];
 extern WebSocketsServer webSocket;
+void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn);
 
 // Azione pulsante
 enum ButtonActionState { BAS_IDLE, BAS_HIGHLIGHT, BAS_ACTION_SENT };
