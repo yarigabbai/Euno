@@ -151,6 +151,8 @@ bool useGPSHeading = false;
 bool motorControllerState = false;
 TinyGPSPlus gps;
 bool externalBearingEnabled = false;
+unsigned long lastSensorUpdate = 0;
+const unsigned long sensorUpdateInterval = 100; // ms
 
 // Parametri configurabili
 int V_min = 100;
@@ -301,10 +303,10 @@ void updateConfig(String command) {
         E_max = value;
         saveParameterToEEPROM(16, E_max);
         debugLog("Parametro E_max aggiornato: " + String(E_max));
-    } else if (param == "E_tolleranza") {
+    } else if (param == "Deadband") {
         E_tol = value;
         saveParameterToEEPROM(18, E_tol);
-        debugLog("Parametro E_tolleranza aggiornato: " + String(E_tol));
+        debugLog("Parametro Deadband aggiornato: " + String(E_tol));
     } else if (param == "T_min") {
         T_min = value;
         saveParameterToEEPROM(20, T_min);
@@ -568,6 +570,24 @@ void setup() {
 
 void loop() {
     unsigned long currentMillis = millis();
+    // Lettura sensori ogni 100 ms
+if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
+  lastSensorUpdate = currentMillis;
+
+  // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
+  updateSensorFusion();
+
+  if (useGPSHeading && gps.speed.isValid() && gps.course.isValid()) {
+    currentHeading = (int)round(getFusedHeading());
+  } else {
+    compass.read();
+    currentHeading = getCorrectedHeading();
+  }
+
+  // 👀 (opzionale: stampa per debug)
+  // Serial.println("Heading aggiornato: " + String(currentHeading));
+}
+
     
     // Aggiornamento sensori ad alta frequenza
     updateSensorFusion();
@@ -593,6 +613,8 @@ void loop() {
     
     // Operazioni a 1Hz (ogni 1000ms)
     static unsigned long last1HzUpdate = 0;
+    unsigned long lastSensorUpdate = 0;
+const unsigned long sensorUpdateInterval = 100; // ms
     if (currentMillis - last1HzUpdate >= 1000) {
         last1HzUpdate = currentMillis;
         

@@ -11,6 +11,8 @@
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
 String infoLabels[6] = { "Heading", "Cmd", "Err", "GPS", "Spd", "" };
+String headingLabel = "H.Compass";  // label attuale per il riquadro 0
+extern String headingLabel;         // se serve visibile in più file
 
 // -------------------------------------
 String truncateString(String s, int maxChars) {

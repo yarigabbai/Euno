@@ -22,6 +22,8 @@ struct Parameter {
 };
 extern Parameter params[];
 extern WebSocketsServer webSocket;
+extern String headingLabel;  // iniziale
+
 void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn);
 
 // Azione pulsante
@@ -44,7 +46,7 @@ static const uint16_t buttonColorsMain[NUM_MAIN_BUTTONS] = { 0xD69A, 0xD69A, 0xF
 
 // Menu secondario
 #define NUM_SECOND_BUTTONS 6
-static const char* secondButtonLabels[NUM_SECOND_BUTTONS] = { "CALIB", "GPS", "C-GPS", "Imp", "EXTBRG", "MENU" };
+static const char* secondButtonLabels[NUM_SECOND_BUTTONS] = { "CALIB", "SOURCE", "OFFset", "SET", "EXTBRG", "MENU" };
 static const char* secondButtonActions[NUM_SECOND_BUTTONS] = { "ACTION:CAL", "ACTION:GPS", "ACTION:C-GPS", "IMP", "ACTION:EXT_BRG", "MENU:SWITCH" };
 static const uint16_t buttonColorsSecond[NUM_SECOND_BUTTONS] = { 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60 };
 

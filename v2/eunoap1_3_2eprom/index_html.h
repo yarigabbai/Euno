@@ -219,9 +219,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <span id="E_max_val">80</span>
       </div>
       <div class="param-row">
-        <label for="E_tolleranza">E_tolleranza:</label>
-        <input type="range" id="E_tolleranza" min="0" max="50" value="10" oninput="updateLabel('E_tolleranza')">
-        <span id="E_tolleranza_val">10</span>
+        <label for="Deadband">Deadband:</label>
+        <input type="range" id="Deadband" min="0" max="50" value="10" oninput="updateLabel('Deadband')">
+        <span id="Deadband_val">10</span>
       </div>
       <div class="param-row">
         <label for="T_min">T_min:</label>
@@ -417,7 +417,7 @@ else if (msg === "MOTOR:OFF") {
     }
 
     function sendAllParams() {
-      const paramList = ["V_min", "V_max", "E_min", "E_max", "E_tolleranza", "T_min", "T_max", "T_pause"];
+      const paramList = ["V_min", "V_max", "E_min", "E_max", "Deadband", "T_min", "T_max", "T_pause"];
       for (let i = 0; i < paramList.length; i++) {
         const param = paramList[i];
         const val = document.getElementById(param).value;

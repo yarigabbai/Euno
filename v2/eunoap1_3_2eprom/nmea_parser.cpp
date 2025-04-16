@@ -6,8 +6,7 @@
 #include "euno_debugAP.h"
 
 
-// Se usi "headingSourceLabel" per la label di heading
-String headingSourceLabel = "Heading";  
+
 
 // Variabili globali esterne
 extern TFT_eSPI tft;
@@ -17,7 +16,7 @@ extern Parameter params[];
 extern bool motorControllerState;
 extern int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
 extern void saveParamsToEEPROM();
-
+extern String headingLabel;
 // Variabili da ap_main.ino
 extern bool externalBearingEnabled;
 extern IPAddress clientIP;
@@ -27,7 +26,7 @@ extern int lastValidExtBearing;
 extern unsigned long lastExtBearingTime;
 extern WebSocketsServer webSocket;
 int headingSourceIndex = 0; // 0 = Compass, 1 = Fusion, 2 = Experimental
-String headingLabelText = "H.Compass"; // testo da mostrare nel box heading
+
 
 
 // ===============================
@@ -54,7 +53,7 @@ void parseNMEA(String nmea,
 
     // Se vuoi che la label “Heading” rifletta headingSourceLabel
 
-
+infoLabels[0] = headingLabel;
 updateDataBox(tft, 0, String(heading));
 
 
@@ -153,44 +152,40 @@ updateDataBox(tft, 0, String(heading));
     delay(2000);
     //updateDataBox(tft, 5, motorControllerState ? "ON" : "OFF");
   }
+
+
 else if (nmea.startsWith("$HEADING_SOURCE,")) {
     String modeStr = getStringValue(nmea, "MODE");
 
     if (modeStr == "COMPASS") {
-        headingSourceIndex = 0;
-        infoLabels[0] = "H.Compass";
+        headingLabel = "H.Compass";
     }
     else if (modeStr == "FUSION") {
-        headingSourceIndex = 1;
-        infoLabels[0] = "H.Gyro";
+        headingLabel = "H.Gyro";
     }
     else if (modeStr == "EXPERIMENTAL") {
-        headingSourceIndex = 2;
-        infoLabels[0] = "H.Expmt";
+        headingLabel = "H.Expmt";
     }
     else {
-        headingSourceIndex = -1;
-        infoLabels[0] = "Heading";
+        headingLabel = "Heading";
     }
 
-    // Forza il ridisegno completo del riquadro
+    infoLabels[0] = headingLabel;
+
+    // Ridisegna etichetta
     int boxW = tft.width() / 3;
     int boxH = staticAreaHeight / 2;
-    int x = 0; // Prima colonna
-    int y = 0; // Prima riga
-    
-    // Pulisci l'area della label
+    int x = 0; int y = 0;
     tft.fillRect(x + 2, y + 2, boxW - 4, 14, TFT_BLACK);
-    
-    // Ridisegna la label
     tft.setTextDatum(TL_DATUM);
     tft.setTextSize(1);
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    tft.drawString(infoLabels[0], x + 2, y + 2);
-    
-    // Aggiorna il valore (usa il valore corrente o "↻" temporaneo)
+    tft.drawString(headingLabel, x + 2, y + 2);
+
+    // Mostra simbolo aggiornamento nel box
     updateDataBox(tft, 0, "↻");
 }
+
 }
 
 
@@ -221,7 +216,7 @@ if      (param == "V_min") V_min = ival;
 else if (param == "V_max") V_max = ival;
 else if (param == "E_min") E_min = ival;
 else if (param == "E_max") E_max = ival;
-else if (param == "E_tolleranza") E_tol = ival;
+else if (param == "Deadband") E_tol = ival;
 else if (param == "T_min") T_min = ival;
 else if (param == "T_max") T_max = ival;
 

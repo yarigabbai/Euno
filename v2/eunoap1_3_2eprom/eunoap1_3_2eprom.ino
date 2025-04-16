@@ -87,10 +87,10 @@ Parameter params[NUM_PARAMS] = {
   { "V_max", 255, 0, 255 },
   { "E_min", 5, 0, 100 },
   { "E_max", 40, 0, 100 },
-  { "E_tolleranza", 1, 0, 10 },
+  { "Deadband", 1, 0, 10 },
   { "T_min", 4, 0, 20 },
   { "T_max", 10, 0, 20 },
-  { "T_pause", 0, 0, 9 }  // Valore da 0 a 9 (0–900 ms)
+  { "T_pause", 2, 0, 9 }  // Valore da 0 a 9 (0–900 ms)
 
 };
 
@@ -147,7 +147,7 @@ for (int i = 0; i < NUM_PARAMS; i++) {
   else if (String(params[i].name) == "V_max") V_max = params[i].value;
   else if (String(params[i].name) == "E_min") E_min = params[i].value;
   else if (String(params[i].name) == "E_max") E_max = params[i].value;
-  else if (String(params[i].name) == "E_tolleranza") E_tol = params[i].value;
+  else if (String(params[i].name) == "Deadband") E_tol = params[i].value;
   else if (String(params[i].name) == "T_min") T_min = params[i].value;
   else if (String(params[i].name) == "T_max") T_max = params[i].value;
   else if (String(params[i].name) == "T_pause") T_pause = params[i].value;
