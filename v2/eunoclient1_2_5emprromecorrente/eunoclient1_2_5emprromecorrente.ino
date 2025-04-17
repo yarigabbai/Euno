@@ -21,6 +21,9 @@ int headingSourceMode = 0;  // 0 = COMPASS, 1 = FUSION, 2 = EXPERIMENTAL
 int headingOffset = 0;      // Offset software per la bussola (impostato con C-GPS)
 float smoothedSpeed = 0.0;
 int T_pause = 0;  // Valori da 0 a 9 (cioè da 0 a 900 ms)
+// Variabili per gestione non bloccante dell'attuatore
+unsigned long motorPhaseStartTime = 0;
+bool motorPhaseActive = false;  // false = fase di pausa
 
 //monitor corrente  su pin 19 e 20 implementare l10 letture in un minuto, poin media e 
 //poi 3 volte quella media ferma il motore in quella direzione
@@ -636,24 +639,35 @@ const unsigned long sensorUpdateInterval = 100; // ms
         // Calcola l'errore e invia i dati via UDP
         int diff = calculateDifference(currentHeading, headingCommand);
         sendNMEAData(currentHeading, headingCommand, diff, gps);
-        
-        // Controllo motore
-        if (motorControllerState) {
-          int pauseTime = T_pause * 100;         // da 0 a 900 ms
-int activeTime = 1000 - pauseTime;     // il tempo restante per movimento
-if (activeTime < 200) activeTime = 200; // protezione attuatore
+         }
+    if (motorControllerState) {
+    // 1. Calcola durate in base a T_pause
+    int pauseTime = T_pause * 100;
+    int activeTime = 1000 - pauseTime;
+    if (activeTime < 200) activeTime = 200;
 
-            int velocita_correzione = calcola_velocita_e_verso(currentHeading, headingCommand);
-            gestisci_attuatore(velocita_correzione);
-delay(activeTime);
-stopMotor();
-delay(pauseTime);
+    unsigned long now = millis();
 
-        } else {
-            stopMotor();
+    // 2. FASE ATTIVA: attuatore acceso
+    if (motorPhaseActive) {
+        if (now - motorPhaseStartTime >= activeTime) {
+            stopMotor();                     // spegne il motore
+            motorPhaseActive = false;        // passa alla pausa
+            motorPhaseStartTime = now;       // reset timer
         }
     }
-    
+
+    // 3. FASE PAUSA: motore spento
+    else {
+        if (now - motorPhaseStartTime >= pauseTime) {
+            int velocita_correzione = calcola_velocita_e_verso(currentHeading, headingCommand);
+            gestisci_attuatore(velocita_correzione);  // accende il motore
+            motorPhaseActive = true;                   // entra in fase attiva
+            motorPhaseStartTime = now;                 // reset timer
+        }
+    }
+}
+
     // Gestione calibrazione se attiva
     if (calibrationMode) {
         performCalibration(currentMillis);

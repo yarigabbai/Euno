@@ -54,7 +54,7 @@ static const uint16_t buttonColorsSecond[NUM_SECOND_BUTTONS] = { 0xFE60, 0xFE60,
 static const int staticAreaHeight = 120;
 static const int sliderX = 10;
 static const int sliderWidth = 320 - 20; 
-static const unsigned long touchDebounceDelay = 300;
+static const unsigned long touchDebounceDelay = 150;
 
 // -------------------------------------------------
 // Funzioni

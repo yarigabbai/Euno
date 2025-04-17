@@ -329,7 +329,7 @@ void checkTouch(
         int by = staticAreaHeight + (i / cols) * btnH;
         if (x >= bx && x <= bx + btnW && y >= by && y <= by + btnH) {
           tft.fillRoundRect(bx, by, btnW, btnH, 10, 0xFFFF);
-          delay(100);
+          //delay(100);
           pendingAction = mainButtonActions[i];
           pendingButtonType = 0;
           buttonActionState = BAS_HIGHLIGHT;
@@ -350,7 +350,7 @@ void checkTouch(
         int by = staticAreaHeight;
         if (x >= bx && x <= bx + btnW1 && y >= by && y <= by + row1H) {
           tft.fillRoundRect(bx, by, btnW1, row1H, 10, 0xFFFF);
-          delay(100);
+          //delay(100);
           pendingAction = secondButtonActions[i];
           pendingButtonType = 1;
           buttonActionState = BAS_HIGHLIGHT;
@@ -368,7 +368,7 @@ void checkTouch(
           int bx = i * btnW2;
           if (x >= bx && x <= bx + btnW2 && y >= by && y <= by + row1H) {
             tft.fillRoundRect(bx, by, btnW2, row1H, 10, 0xFFFF);
-            delay(100);
+            //delay(100);
             pendingAction = secondButtonActions[row1Count + i];
             pendingButtonType = 1;
             buttonActionState = BAS_HIGHLIGHT;
