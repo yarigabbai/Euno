@@ -9,7 +9,7 @@
 
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
-#include "tft_touch.h" // Per usare struct Parameter e params[]
+
 extern String infoLabels[6];
 #ifndef PARAMETER_DEFINED
 #define PARAMETER_DEFINED

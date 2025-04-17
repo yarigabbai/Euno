@@ -6,6 +6,11 @@
 #include "euno_debugAP.h"
 
 
+// ────────────────────────────────────────────────
+// 1) Dichiariamo variabili per gestire il timeout
+static unsigned long lastParamUpdateTime = 0;  // memorizza quando abbiamo ricevuto l'ultimo PARAM_UPDATE
+static bool paramUpdatePending = false;        // flag che indica se dobbiamo tornare allo stato ON/OFF
+// ────────────────────────────────────────────────
 
 
 // Variabili globali esterne
@@ -141,21 +146,27 @@ updateDataBox(tft, 0, String(heading));
 }
 
 
-  else if (nmea.startsWith("$PARAM_UPDATE,")) {
-    // =======================
-    // Aggiornamento parametri
-    // =======================
-    String fullField = getFieldNMEA(nmea, 1);
-    String param = fullField.substring(0, fullField.indexOf('='));
-    String value = fullField.substring(fullField.indexOf('=') + 1);
-   // updateDataBox(tft, 5, param + "=" + value);
-    delay(2000);
-    //updateDataBox(tft, 5, motorControllerState ? "ON" : "OFF");
-  }
+ else if (nmea.startsWith("$PARAM_UPDATE,")) {
+  // 1) Leggiamo nome/valore del parametro
+  String fullField = getFieldNMEA(nmea, 1);
+  String param     = fullField.substring(0, fullField.indexOf('='));
+  String value     = fullField.substring(fullField.indexOf('=') + 1);
 
+  // 2) Mostriamo "param=value" per 2 s nel box 5
+  updateDataBox(tft, 5, param + "=" + value);
+
+  // 3) Avviamo il conteggio per tornare a ON/OFF
+  lastParamUpdateTime = millis();
+  paramUpdatePending  = true;
+}
 
 else if (nmea.startsWith("$HEADING_SOURCE,")) {
+    debugLog("DEBUG(AP): ricevuto HEADING_SOURCE → " + nmea);
+
     String modeStr = getStringValue(nmea, "MODE");
+    debugLog("DEBUG(AP): MODE estratto → " + modeStr);
+modeStr.trim();                  // Rimuove spazi iniziali/finali
+modeStr.replace("*", "");       // Rimuove l'asterisco finale
 
     if (modeStr == "COMPASS") {
         headingLabel = "H.Compass";
@@ -170,21 +181,27 @@ else if (nmea.startsWith("$HEADING_SOURCE,")) {
         headingLabel = "Heading";
     }
 
+    debugLog("DEBUG(AP): headingLabel impostato a → " + headingLabel);
+
     infoLabels[0] = headingLabel;
 
-    // Ridisegna etichetta
+    // 👉 RIFORZA il disegno manualmente
     int boxW = tft.width() / 3;
-    int boxH = staticAreaHeight / 2;
-    int x = 0; int y = 0;
+    int x = 0, y = 0;
+
+    // Pulisce lo sfondo
     tft.fillRect(x + 2, y + 2, boxW - 4, 14, TFT_BLACK);
+
+    // Scrive il nuovo testo
     tft.setTextDatum(TL_DATUM);
     tft.setTextSize(1);
     tft.setTextColor(TFT_CYAN, TFT_BLACK);
     tft.drawString(headingLabel, x + 2, y + 2);
 
-    // Mostra simbolo aggiornamento nel box
+    // Mostra ↻ temporaneo
     updateDataBox(tft, 0, "↻");
 }
+
 
 }
 

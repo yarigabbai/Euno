@@ -8,6 +8,10 @@
 
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
+// ────────────────────────────────────────────────
+// Indice per la modalità heading: 0=COMPASS, 1=FUSION, 2=EXPERIMENTAL
+static int headingSourceIndex = 0;  
+// ────────────────────────────────────────────────
 
 extern WiFiUDP udp;
 extern IPAddress serverIP;
@@ -98,10 +102,43 @@ void handleCommandClient(String command) {
         calibrationStartTime = millis();
         resetCalibrationData();
     }
-    else if (command == "ACTION:GPS") {
-        useGPSHeading = !useGPSHeading;
-        debugLog("DEBUG(UDP): Cambio sorgente heading: " + String(useGPSHeading ? "GPS" : "Bussola"));
+else if (command.startsWith("ACTION:GPS")) {
+    // A) Rimuoviamo eventuali spazi indesiderati
+    command.trim();
+
+    // B) Debug intermedio: controlliamo che entriamo qui
+    debugLog("DEBUG(UDP): [GPS BLOCK] ricevuto comando: '" + command + "'");
+
+    // C) Ciclo tra i 3 tipi di heading
+    headingSourceIndex = (headingSourceIndex + 1) % 3;
+
+    // D) Imposta la stringa MODE corrispondente
+    String mode;
+    switch (headingSourceIndex) {
+      case 0: mode = "COMPASS";    useGPSHeading = false; break;
+      case 1: mode = "FUSION";     useGPSHeading = true;  break;
+      case 2: mode = "EXPERIMENTAL"; useGPSHeading = true;  break;
     }
+
+    // E) Log su Serial locale
+    Serial.println("CLIENT: modalità heading → " + mode);
+
+    // F) Invia all’AP il comando NMEA‐like
+    {
+      String msg = "$HEADING_SOURCE,MODE=" + mode;
+      Serial.println("SENDING UDP → " + msg);   // <‑‑ nuova riga di debug
+
+      udp.beginPacket(serverIP, serverPort);
+      udp.print(msg);
+      udp.endPacket();
+    }
+
+    // G) Conferma in log UDP
+    debugLog("DEBUG(UDP): Inviato $HEADING_SOURCE,MODE=" + mode);
+}
+
+}
+
     else if (command == "ACTION:-10") {
         headingCommand -= 10;
         if (headingCommand < 0) headingCommand += 360;
