@@ -88,7 +88,7 @@ int getCorrectedHeading() {
     compass.read();
     float correctedX = compass.getX() - compassOffsetX;
     float correctedY = compass.getY() - compassOffsetY;
-    float heading = atan2(correctedY, correctedX) * 180.0 / M_PI;
+    float heading = atan2(correctedX, correctedY) * 180.0 / M_PI;
     if (heading < 0) {
         heading += 360;
     }
