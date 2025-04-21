@@ -24,7 +24,9 @@ int T_pause = 0;  // Valori da 0 a 9 (cioè da 0 a 900 ms)
 // Variabili per gestione non bloccante dell'attuatore
 unsigned long motorPhaseStartTime = 0;
 bool motorPhaseActive = false;  // false = fase di pausa
-
+int lastErrors[3] = {999, 999, 999}; // Errore molto alto iniziale
+int erroreIndex = 0;
+bool shouldStopMotor = false;
 //monitor corrente  su pin 19 e 20 implementare l10 letture in un minuto, poin media e 
 //poi 3 volte quella media ferma il motore in quella direzione
 
@@ -657,13 +659,41 @@ const unsigned long sensorUpdateInterval = 100; // ms
         }
     }
 
-    // 3. FASE PAUSA: motore spento
-    else {
-        if (now - motorPhaseStartTime >= pauseTime) {
+else {
+    if (now - motorPhaseStartTime >= pauseTime) {
+        // Calcola errore assoluto
+        int errore = abs(calculateDifference(currentHeading, headingCommand));
+
+        // Aggiorna lo storico degli errori
+        lastErrors[erroreIndex % 3] = errore;
+        erroreIndex++;
+
+        // Solo dopo 3 campioni confrontiamo
+        if (erroreIndex >= 3) {
+            int e0 = lastErrors[(erroreIndex - 3) % 3];
+            int e1 = lastErrors[(erroreIndex - 2) % 3];
+            int e2 = lastErrors[(erroreIndex - 1) % 3];
+
+            debugLog("DEBUG ERRORI: " + String(e0) + " → " + String(e1) + " → " + String(e2));
+
+            if (e2 < e1 && e1 < e0) {
+                shouldStopMotor = true;
+                debugLog("STOP MOTORE: errore in calo per 3 cicli");
+            } else {
+                shouldStopMotor = false;
+            }
+        }
+
+        // Se va fermato, non accende il motore
+        if (shouldStopMotor) {
+            stopMotor();
+            motorPhaseActive = false;
+            motorPhaseStartTime = now;
+        } else {
             int velocita_correzione = calcola_velocita_e_verso(currentHeading, headingCommand);
             gestisci_attuatore(velocita_correzione);  // accende il motore
-            motorPhaseActive = true;                   // entra in fase attiva
-            motorPhaseStartTime = now;                 // reset timer
+            motorPhaseActive = true;
+            motorPhaseStartTime = now;
         }
     }
 }
@@ -672,4 +702,4 @@ const unsigned long sensorUpdateInterval = 100; // ms
     if (calibrationMode) {
         performCalibration(currentMillis);
     }
-}
+}}
