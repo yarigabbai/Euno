@@ -43,9 +43,9 @@ unsigned long lastCorrection = 0;
 // ======================================================================
 // COSTANTI E PARAMETRI DI CALIBRAZIONE
 // ======================================================================
-const float alphaSpeed          = 0.2;   // coeff. per la media esponenziale della velocità
-const float gyroCalibrationFactor = 0.5; // fattore di calibrazione giroscopio
-const float correctionFactor      = 0.1; // fattore di correzione verso heading GPS
+const float alphaSpeed            = 0.2;   // coeff. per la media esponenziale della velocità
+const float gyroCalibrationFactor = 0.5;   // fattore di calibrazione giroscopio
+const float correctionFactor      = 0.1;   // fattore di correzione verso heading GPS
 const unsigned long CORRECTION_INTERVAL = 10000; // ms fra correzioni verso GPS
 
 // ======================================================================
@@ -133,17 +133,13 @@ inline void updateSmoothedSpeed() {
 // ======================================================================
 // FUNZIONI PRINCIPALI DI SENSOR FUSION
 // ======================================================================
-
-// Esegue aggiornamento completo della fusion IMU + GPS
 inline void updateSensorFusion() {
-  // Aggiorna la velocità filtrata
   updateSmoothedSpeed();
 
-  // Se non ancora calibrato, fai calibrazione e inizializza headingGyro dal compass
   if (!sensorFusionCalibrated) {
     calibrateTilt();
     calibrateGyro();
-    headingGyro = getCorrectedHeading();  // "Il compass è solo valore di partenza"
+    headingGyro = getCorrectedHeading();
     debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
 
     prevMicros = micros();
@@ -151,56 +147,38 @@ inline void updateSensorFusion() {
 
     sensorFusionCalibrated = true;
     gyroInitialized        = true;
-    
-    // Riempi buffer GPS con lo stesso valore iniziale
-    for (int i = 0; i < 5; i++) {
-      gpsHeadingBuffer[i] = headingGyro;
-    }
+    for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = headingGyro;
     gpsHeadingIndex = 0;
-    
     debugLog("DEBUG: Sensor Fusion calibration completed.");
   }
 
-  // Calcolo del dt (in secondi)
   unsigned long nowMicros = micros();
   float dt = (nowMicros - prevMicros) / 1000000.0;
   prevMicros = nowMicros;
-  if (dt <= 0) return; // sicurezza
-  
-  // Lettura giroscopio e integrazione
+  if (dt <= 0) return;
+
   float rawGz = readGyroZ();
   float rateZ = -((rawGz - gyroOffsetZ) / 65.5) * gyroCalibrationFactor;
   headingGyro += rateZ * dt;
   headingGyro = fmod(headingGyro + 360.0, 360.0);
 
-  // Se il GPS è valido e la barca si muove >2kn, facciamo correzione ogni CORRECTION_INTERVAL
   if (gps.speed.isValid() && gps.speed.knots() > 2 && gps.course.isValid()) {
     float currentGPSHeading = gps.course.deg();
-    
-    // Prima volta che abbiamo un GPS valido, sincronizziamo direttamente
     if (!initialGPSOffsetSet) {
       headingGyro = currentGPSHeading;
       initialGPSOffsetSet = true;
-      for (int i = 0; i < 5; i++) {
-        gpsHeadingBuffer[i] = currentGPSHeading;
-      }
+      for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = currentGPSHeading;
       gpsHeadingIndex = 0;
       debugLog("DEBUG: Fusion offset reset to GPS heading: " + String(currentGPSHeading));
-    } 
-    // Aggiorna buffer circolare
-    else {
+    } else {
       gpsHeadingBuffer[gpsHeadingIndex] = currentGPSHeading;
       gpsHeadingIndex = (gpsHeadingIndex + 1) % 5;
     }
 
-    // Correzione “lenta” ogni 10 secondi (CORRECTION_INTERVAL)
     if (millis() - lastCorrection >= CORRECTION_INTERVAL) {
       float sumGPS = 0;
-      for (int i = 0; i < 5; i++) {
-        sumGPS += gpsHeadingBuffer[i];
-      }
+      for (int i = 0; i < 5; i++) sumGPS += gpsHeadingBuffer[i];
       float avgGPS = sumGPS / 5.0;
-
       float diff = angleDifference(avgGPS, headingGyro);
       if (fabs(diff) > 1.0) {
         headingGyro += correctionFactor * diff;
@@ -211,29 +189,29 @@ inline void updateSensorFusion() {
   }
 }
 
-// Restituisce l'heading fuso IMU + GPS
 inline float getFusedHeading() {
   return headingGyro;
 }
 
 // ======================================================================
-// FILTRO SPERIMENTALE (headingExperimental)
+// EXPERIMENTAL HEADING (parametrico con alpha dinamico)
 // ======================================================================
 inline void updateExperimental(float input) {
-  // Applica una fusione esponenziale con alpha fisso
-  float alpha = 0.3;
-  float diff = angleDifference(input, headingExperimental);
+  const float alphaFast = 0.8f;   // rapido per grandi differenze
+  const float alphaSlow = 0.3f;   // più lento per piccoli aggiustamenti
+  const float thresh   = 10.0f;   // soglia in gradi
 
   if (!expInitialized) {
     headingExperimental = input;
     expInitialized = true;
-  } else {
-    headingExperimental += alpha * diff;
-    headingExperimental = fmod(headingExperimental + 360.0, 360.0);
+    return;
   }
+  float diff = angleDifference(input, headingExperimental);
+  float alpha = (fabs(diff) > thresh) ? alphaFast : alphaSlow;
+  headingExperimental += alpha * diff;
+  headingExperimental = fmod(headingExperimental + 360.0f, 360.0f);
 }
 
-// Restituisce l'heading “sperimentale”
 inline float getExperimentalHeading() {
   return headingExperimental;
 }
