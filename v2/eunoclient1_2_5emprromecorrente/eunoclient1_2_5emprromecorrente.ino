@@ -165,11 +165,11 @@ int V_max = 255;
 int E_min = 5;
 int E_max = 40;
 int E_tol = 1;
-int T_min = 4;
-int T_max = 10;
+int T_risposta = 10; // Tempo ideale (in secondi) per calo errore. Range consigliato: 3–12
+
 
 // Variabili di controllo
-int errore_precedente = 0;
+float errore_precedente = 0;
 
 int direzione_attuatore = 0;
 
@@ -248,8 +248,7 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
     nmeaData += "E_min=" + String(E_min) + ",";
     nmeaData += "E_max=" + String(E_max) + ",";
     nmeaData += "E_tol=" + String(E_tol) + ",";
-    nmeaData += "T_min=" + String(T_min) + ",";
-    nmeaData += "T_max=" + String(T_max) + ",";
+nmeaData += "T_risposta=" + String(T_risposta) + ",";
     nmeaData += "T_pause=" + String(T_pause) + "*";
     
     udp.beginPacket(serverIP, serverPort);
@@ -312,22 +311,17 @@ void updateConfig(String command) {
         E_tol = value;
         saveParameterToEEPROM(18, E_tol);
         debugLog("Parametro Deadband aggiornato: " + String(E_tol));
-    } else if (param == "T_min") {
-        T_min = value;
-        saveParameterToEEPROM(20, T_min);
-        debugLog("Parametro T_min aggiornato: " + String(T_min));
-    } else if (param == "T_max") {
-        T_max = value;
-        saveParameterToEEPROM(22, T_max);
-        debugLog("Parametro T_max aggiornato: " + String(T_max));
+   
     }
     else if (param == "T_pause") {
     T_pause = value;
     writeParameterToEEPROM(24, T_pause);  // usa l'indirizzo 24, se non è già usato da altro
     debugLog("Parametro T_pause aggiornato: " + String(T_pause));
+} else if (param == "T_risposta") {
+    T_risposta = constrain(value, 3, 12);
+    writeParameterToEEPROM(26, T_risposta);
+    debugLog("Parametro T_risposta aggiornato: " + String(T_risposta));
 }
-
-    
     String confirmMsg = "$PARAM_UPDATE,";
     confirmMsg += param + "=" + String(value) + "*";
     udp.beginPacket(serverIP, serverPort);
@@ -494,40 +488,48 @@ int calcola_velocita_proporzionale(int errore) {
 }
 
 //───────────────────────────────────────────────
-// Nuova logica a 3 stati (continua / ferma / inverte)
+// Nuova logica a 3 stati con PWM proporzionale
+//───────────────────────────────────────────────
+// (Il resto del file resta INVARIATO fino alla funzione calcola_velocita_e_verso)
+//───────────────────────────────────────────────
+// Nuova logica a 3 stati – corregge anche con errore negativo
 //───────────────────────────────────────────────
 int calcola_velocita_e_verso(int rotta_attuale, int rotta_desiderata) {
+    // 1️⃣ Errore circolare (‑180° … +180°)
+    float errore = (float)((rotta_desiderata - rotta_attuale + 540) % 360 - 180);
 
-    // 1. Errore circolare e verso “normale” dell’attuatore
-    int errore = calculateCircularError(rotta_attuale, rotta_desiderata);
-    int verso  = (errore > 0) ? 1 : -1;            // +1 = estendi, –1 = ritrai
+    // 2️⃣ Verso dell’attuatore: +1 = estendi  |  ‑1 = ritrai
+    float verso = (errore >= 0.0f) ? 1.0f : -1.0f;
 
-    // 2. Dead-band: entro E_tol (slider “Deadband”) il motore resta fermo
-    if (abs(errore) <= E_tol) {
+    // 3️⃣ Zona morta (dead‑band)
+    if (fabs(errore) <= E_tol) {
         errore_precedente = errore;
-        return 0;
+        return 0;   // motore fermo
     }
 
-    // 3. Velocità reale dell’errore & velocità desiderata
-    float deltaErrore     = errore_precedente - errore;   // °/s
-    errore_precedente     = errore;                       // aggiorna storico
-    float velocitaTarget  = calcolaVelocitaTarget(errore);
-    float margine         = velocitaTarget * 0.20f;       // ±20 %
+    // 4️⃣ Velocità reale dell’errore (°/s) – uso solo il modulo
+    float deltaAmp = fabs(errore_precedente) - fabs(errore);
+    errore_precedente = errore;   // aggiorna storico
 
-    // 4. Confronto e decisione
-    if (abs(deltaErrore - velocitaTarget) <= margine) {
-        // ★ Velocità giusta → FERMA
-        return 0;
-    } 
-    else if (deltaErrore < velocitaTarget) {
-        // ★ Troppo LENTO → CONTINUA (stesso verso)
-        return (int)round(velocitaTarget) * verso;
-    } 
-    else {
-        // ★ Troppo VELOCE → INVERTI
-        return (int)round(velocitaTarget) * -verso;
+    // 5️⃣ Velocità target (°/s) per annullare l’errore in T_risposta secondi
+    float velocita_target = fabs(errore) / (float)T_risposta;
+
+    // 6️⃣ Margine accettabile (±20 %)
+    float margine = velocita_target * 0.20f;
+
+    // 7️⃣ PWM proporzionale alla grandezza dell’errore (magnitudine positiva)
+    int pwm = abs(calcola_velocita_proporzionale((int)errore));  // sempre ≥0
+
+    // 8️⃣ Decisione sui 3 stati
+    if (fabs(deltaAmp - velocita_target) <= margine) {
+        return 0;                   // ★ FERMA: velocità corretta
+    } else if (deltaAmp < velocita_target) {
+        return pwm * verso;         // ★ CONTINUA: troppo lento
+    } else {
+        return pwm * -verso;        // ★ INVERTI: troppo veloce (overshoot)
     }
 }
+
 
  
 void gestisci_attuatore(int velocita) {
@@ -568,9 +570,8 @@ void setup() {
     E_min = readParameterFromEEPROM(14);
     E_max = readParameterFromEEPROM(16);
     E_tol = readParameterFromEEPROM(18);
-    T_min = readParameterFromEEPROM(20);
-    T_max = readParameterFromEEPROM(22);
     T_pause = readParameterFromEEPROM(24);
+T_risposta = readParameterFromEEPROM(26);
 
     // Inizializza bussola
     Wire.begin(8, 9);
