@@ -170,7 +170,7 @@ int T_max = 10;
 
 // Variabili di controllo
 int errore_precedente = 0;
-int delta_errore_precedente = 0;
+
 int direzione_attuatore = 0;
 
 // ###########################################
@@ -462,6 +462,20 @@ void handleCommandClient(String command) {
         updateConfig(command);
     }
 }
+//───────────────────────────────────────────────
+// Supporto: differenza circolare  –180 … +180
+int calculateCircularError(int heading, int command) {
+    int diff = (command - heading + 540) % 360 - 180;
+    return diff;
+}
+
+// Supporto: velocità target proporzionale all’errore
+float calcolaVelocitaTarget(float errore) {
+    float absErr = abs(errore);
+    if (absErr <= E_min) return V_min;
+    if (absErr >= E_max) return V_max;
+    return V_min + ((V_max - V_min) * (absErr - E_min)) / (float)(E_max - E_min);
+}
 
 // ###########################################
 // ### ALGORITMO AUTOPILOTA ###
@@ -479,38 +493,43 @@ int calcola_velocita_proporzionale(int errore) {
     return V_min + (V_max - V_min) * ((absErr - E_min) / (float)(E_max - E_min));
 }
 
+//───────────────────────────────────────────────
+// Nuova logica a 3 stati (continua / ferma / inverte)
+//───────────────────────────────────────────────
 int calcola_velocita_e_verso(int rotta_attuale, int rotta_desiderata) {
-    int errore = (rotta_desiderata - rotta_attuale + 180) % 360 - 180;
-    
+
+    // 1. Errore circolare e verso “normale” dell’attuatore
+    int errore = calculateCircularError(rotta_attuale, rotta_desiderata);
+    int verso  = (errore > 0) ? 1 : -1;            // +1 = estendi, –1 = ritrai
+
+    // 2. Dead-band: entro E_tol (slider “Deadband”) il motore resta fermo
     if (abs(errore) <= E_tol) {
         errore_precedente = errore;
         return 0;
     }
-    
-    int delta_errore = errore - errore_precedente;
-    
-    if (errore > errore_precedente) {
-        direzione_attuatore = (errore > 0) ? 1 : -1;
-        errore_precedente = errore;
-        delta_errore_precedente = delta_errore;
-        return calcola_velocita_proporzionale(errore) * direzione_attuatore;
+
+    // 3. Velocità reale dell’errore & velocità desiderata
+    float deltaErrore     = errore_precedente - errore;   // °/s
+    errore_precedente     = errore;                       // aggiorna storico
+    float velocitaTarget  = calcolaVelocitaTarget(errore);
+    float margine         = velocitaTarget * 0.20f;       // ±20 %
+
+    // 4. Confronto e decisione
+    if (abs(deltaErrore - velocitaTarget) <= margine) {
+        // ★ Velocità giusta → FERMA
+        return 0;
+    } 
+    else if (deltaErrore < velocitaTarget) {
+        // ★ Troppo LENTO → CONTINUA (stesso verso)
+        return (int)round(velocitaTarget) * verso;
+    } 
+    else {
+        // ★ Troppo VELOCE → INVERTI
+        return (int)round(velocitaTarget) * -verso;
     }
-    
-    if (abs(delta_errore) >= T_min && abs(delta_errore) <= T_max) {
-        direzione_attuatore = 0;
-    } else if (abs(delta_errore) < T_min) {
-        direzione_attuatore = (errore > 0) ? 1 : -1;
-    } else if (abs(delta_errore) > T_max) {
-        direzione_attuatore = -direzione_attuatore;
-    }
-    
-    int vel = calcola_velocita_proporzionale(errore);
-    int velocita_correzione = vel * direzione_attuatore;
-    errore_precedente = errore;
-    delta_errore_precedente = delta_errore;
-    return velocita_correzione;
 }
 
+ 
 void gestisci_attuatore(int velocita) {
     if (velocita > 0) extendMotor(velocita);
     else if (velocita < 0) retractMotor(-velocita);
