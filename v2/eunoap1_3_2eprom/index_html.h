@@ -223,16 +223,14 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <input type="range" id="Deadband" min="0" max="50" value="10" oninput="updateLabel('Deadband')">
         <span id="Deadband_val">10</span>
       </div>
-      <div class="param-row">
-        <label for="T_min">T_min:</label>
-        <input type="range" id="T_min" min="0" max="255" value="30" oninput="updateLabel('T_min')">
-        <span id="T_min_val">30</span>
-      </div>
-      <div class="param-row">
-        <label for="T_max">T_max:</label>
-        <input type="range" id="T_max" min="0" max="255" value="200" oninput="updateLabel('T_max')">
-        <span id="T_max_val">200</span>
-      </div>
+    <div class="param-row">
+  <label for="T_risposta">T&nbsp;resp&nbsp;[s]:</label>
+  <input type="range" id="T_risposta"
+         min="3" max="12" value="8"
+         oninput="updateLabel('T_risposta')">
+  <span id="T_risposta_val">8</span>
+</div>
+
       <div class="param-row">
         <label for="T_pause">T_pause:</label>
         <input type="range" id="T_pause" min="0" max="9" value="0" oninput="updateLabel('T_pause')">
@@ -417,7 +415,7 @@ else if (msg === "MOTOR:OFF") {
     }
 
     function sendAllParams() {
-      const paramList = ["V_min", "V_max", "E_min", "E_max", "Deadband", "T_min", "T_max", "T_pause"];
+      const paramList = ["V_min", "V_max", "E_min", "E_max", "Deadband", "T_risposta", "T_pause"];
       for (let i = 0; i < paramList.length; i++) {
         const param = paramList[i];
         const val = document.getElementById(param).value;

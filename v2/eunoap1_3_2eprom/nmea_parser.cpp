@@ -19,7 +19,7 @@ extern int menuMode;
 extern int currentParamIndex;
 extern Parameter params[];     
 extern bool motorControllerState;
-extern int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
+extern int V_min, V_max, E_min, E_max, E_tol, T_risposta, T_pause;
 extern void saveParamsToEEPROM();
 extern String headingLabel;
 // Variabili da ap_main.ino
@@ -207,7 +207,8 @@ modeStr.replace("*", "");       // Rimuove l'asterisco finale
 
 
 
-extern int V_min, V_max, E_min, E_max, E_tol, T_min, T_max;
+extern int V_min, V_max, E_min, E_max, E_tol, T_risposta;
+
 extern void saveParamsToEEPROM();
 
 // ===============================
@@ -234,8 +235,8 @@ else if (param == "V_max") V_max = ival;
 else if (param == "E_min") E_min = ival;
 else if (param == "E_max") E_max = ival;
 else if (param == "Deadband") E_tol = ival;
-else if (param == "T_min") T_min = ival;
-else if (param == "T_max") T_max = ival;
+else if (param == "T_risposta") T_risposta = ival;
+else if (param == "Pause") T_pause = ival;
 
 // Salva tutto in EEPROM
 saveParamsToEEPROM();

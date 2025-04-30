@@ -33,7 +33,8 @@ using fs::FS;
 
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
-int V_min, V_max, E_min, E_max, E_tol, T_min, T_max, T_pause;
+int V_min, V_max, E_min, E_max, E_tol, T_risposta, T_pause;
+
 
 
 // Configurazione rete
@@ -88,8 +89,7 @@ Parameter params[NUM_PARAMS] = {
   { "E_min", 5, 0, 100 },
   { "E_max", 40, 0, 100 },
   { "Deadband", 1, 0, 10 },
-  { "T_min", 4, 0, 20 },
-  { "T_max", 10, 0, 20 },
+  { "T_risposta", 8, 3, 12 },
   { "T_pause", 2, 0, 9 }  // Valore da 0 a 9 (0–900 ms)
 
 };
@@ -148,8 +148,8 @@ for (int i = 0; i < NUM_PARAMS; i++) {
   else if (String(params[i].name) == "E_min") E_min = params[i].value;
   else if (String(params[i].name) == "E_max") E_max = params[i].value;
   else if (String(params[i].name) == "Deadband") E_tol = params[i].value;
-  else if (String(params[i].name) == "T_min") T_min = params[i].value;
-  else if (String(params[i].name) == "T_max") T_max = params[i].value;
+else if (String(params[i].name) == "T_risposta") T_risposta = params[i].value;
+
   else if (String(params[i].name) == "T_pause") T_pause = params[i].value;
 
 }
@@ -192,6 +192,17 @@ void loop() {
     if(len > 0) {
       incomingPacket[len] = 0;
       String msg = String(incomingPacket);
+      if (msg == "MOTOR:ON") {
+  motorControllerState = true;
+  drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
+  drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
+}
+else if (msg == "MOTOR:OFF") {
+  motorControllerState = false;
+  drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
+  drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
+}
+
       if (msg.startsWith("LOG:")) {
   Serial.println("AP ha ricevuto log dal client:");
   Serial.println(msg);

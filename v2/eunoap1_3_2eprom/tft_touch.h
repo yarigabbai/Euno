@@ -30,7 +30,7 @@ void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn);
 enum ButtonActionState { BAS_IDLE, BAS_HIGHLIGHT, BAS_ACTION_SENT };
 
 
-#define NUM_PARAMS 8
+#define NUM_PARAMS 7
 
 // Didascalie per i riquadri info (top area)
 
