@@ -192,6 +192,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <!-- Pulsante per mostrare la sezione parametri -->
       <button class="blue" onclick="toggleParamSection()">Parametri</button>
       <button class="yellow" onclick="send('ACTION:EXT_BRG')">EXTBRG</button>
+      <button class="yellow" onclick="send('ACTION:CAL-GYRO')">GYRO</button>
+
       <button class="blue" onclick="toggleMenu()">MENU</button>
     </div>
 

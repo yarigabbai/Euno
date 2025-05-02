@@ -262,6 +262,12 @@ saveParamsToEEPROM();
     udp.print(command);
     udp.endPacket();
   }
+  else if (command == "ACTION:CAL-GYRO") {
+    udp.beginPacket(clientIP, clientPort);
+    udp.print(command);
+    udp.endPacket();
+}
+
   else if (command == "ACTION:GPS") {
     // Se vuoi che AP faccia qualcosa:
     // es: debugLog("AP: Tasto GPS premuto!");

@@ -436,19 +436,36 @@ void handleCommandClient(String command) {
         
         debugLog("Comando allineato al nuovo heading: " + String(headingCommand));
     } else if (command == "ACTION:C-GPS") {
-        if (gps.course.isValid()) {
-            int gpsHeading = (int)gps.course.deg();
-            int compassHeading = getCorrectedHeading();  // Con offset già applicato
-            headingOffset = (gpsHeading - compassHeading + 360) % 360;
-            EEPROM.write(6, headingOffset & 0xFF);
-            EEPROM.write(7, (headingOffset >> 8) & 0xFF);
-            EEPROM.commit();
-            
-            debugLog("Offset bussola aggiornato da C-GPS: " + String(headingOffset));
-        } else {
-            debugLog("C-GPS fallito: GPS non valido");
-        }
-    } else if (command == "EXT_BRG_ENABLED") {
+    if (gps.course.isValid()) {
+        int gpsHeading = (int)gps.course.deg();
+
+        // Leggi la bussola senza offset software
+        compass.read();
+        float rawX = compass.getX() - compassOffsetX;
+        float rawY = compass.getY() - compassOffsetY;
+        int compassHeading = (int)(atan2(rawY, rawX) * 180.0 / M_PI);
+        if (compassHeading < 0) compassHeading += 360;
+
+        // Calcola nuovo offset per allineare la bussola al GPS
+        headingOffset = (gpsHeading - compassHeading + 360) % 360;
+
+        // Salva in EEPROM
+        EEPROM.write(6, headingOffset & 0xFF);
+        EEPROM.write(7, (headingOffset >> 8) & 0xFF);
+        EEPROM.commit();
+
+        debugLog("C-GPS: Offset bussola aggiornato = " + String(headingOffset));
+    } else {
+        debugLog("C-GPS fallito: GPS non valido");
+    }
+}
+else if (command == "ACTION:CAL-GYRO") {
+    debugLog("Avvio calibrazione accelerometro (tilt)...");
+    calibrateTilt();  // questa funzione è già definita in sensor_fusion.h
+    debugLog("Calibrazione completata.");
+}
+
+     else if (command == "EXT_BRG_ENABLED") {
         externalBearingEnabled = true;
     } else if (command == "EXT_BRG_DISABLED") {
         externalBearingEnabled = false;
