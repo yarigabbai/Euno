@@ -7,6 +7,7 @@
 #include <math.h>
 #include "sensor_fusion.h"  // Include il nostro modulo sensor fusion
 #include <Update.h> 
+#include <stdint.h>
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
 #include "calibration.h"
@@ -147,7 +148,7 @@ bool calibrationMode = false;
 unsigned long calibrationStartTime = 0;
 float minX = 32767, minY = 32767, minZ = 32767;
 float maxX = -32768, maxY = -32768, maxZ = -32768;
-int compassOffsetX = 0, compassOffsetY = 0, compassOffsetZ = 0;
+int16_t compassOffsetX = 0, compassOffsetY = 0, compassOffsetZ = 0;
 QMC5883LCompass compass;
 
 int headingCommand = 0;
@@ -511,11 +512,15 @@ void gestisci_attuatore(int velocita) {
 // ### LETTURA SENSORI ###
 // ###########################################
 void readSensors() {
+    // ❶ sblocca / mantiene il QMC5883L in continuous-mode
+    compass.read();
+    int headingCompass = getCorrectedHeading();
+
+    // ❷ scegli la sorgente da usare
     if (useGPSHeading && gps.speed.isValid() && gps.course.isValid()) {
-         currentHeading = (int)round(getFusedHeading());
+        currentHeading = (int)round(getFusedHeading());
     } else {
-         compass.read();
-         currentHeading = getCorrectedHeading();
+        currentHeading = headingCompass;
     }
 }
 
@@ -525,14 +530,25 @@ void readSensors() {
 void setup() {
     Serial.begin(115200);
     EEPROM.begin(512);
+    Serial.printf("EEPROM 0..5 →  %02X %02X  %02X %02X  %02X %02X\n",
+              EEPROM.read(0), EEPROM.read(1),
+              EEPROM.read(2), EEPROM.read(3),
+              EEPROM.read(4), EEPROM.read(5));
+
+Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
+              compassOffsetX, compassOffsetY, compassOffsetZ);
+
     // Legge offset software per la bussola (C-GPS)
     headingOffset = EEPROM.read(6) | (EEPROM.read(7) << 8);
     
-    // Carica offset bussola da EEPROM
-    compassOffsetX = EEPROM.read(0) | (EEPROM.read(1) << 8);
-    compassOffsetY = EEPROM.read(2) | (EEPROM.read(3) << 8);
-    compassOffsetZ = EEPROM.read(4) | (EEPROM.read(5) << 8);
-    
+    // ─── Qui leggi gli offset SIGNED appena parte lo sketch ───
+// legge esattamente 2 byte SIGNED in compassOffsetX/Y/Z
+EEPROM.get<int16_t>(0, compassOffsetX);
+EEPROM.get<int16_t>(2, compassOffsetY);
+EEPROM.get<int16_t>(4, compassOffsetZ);
+Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
+              compassOffsetX, compassOffsetY, compassOffsetZ);
+
     // Carica parametri da EEPROM
     V_min = readParameterFromEEPROM(10);
     V_max = readParameterFromEEPROM(12);
@@ -545,7 +561,12 @@ T_risposta = readParameterFromEEPROM(26);
     // Inizializza bussola
     Wire.begin(8, 9);
     compass.init();
-    
+    compass.read(); 
+    Wire.beginTransmission(0x0D); // indirizzo QMC5883L
+Wire.write(0x09);             // registro control
+Wire.write(0b00011101);       // Continuous, 200 Hz, 2 G, OSR 512
+Wire.endTransmission();
+
     // Inizializza GPS
     Serial2.begin(9600, SERIAL_8N1, 16, 17);
     

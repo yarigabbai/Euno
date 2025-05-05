@@ -14,7 +14,8 @@ extern bool calibrationMode;
 extern unsigned long calibrationStartTime;
 extern float minX, minY, minZ;
 extern float maxX, maxY, maxZ;
-extern int compassOffsetX, compassOffsetY, compassOffsetZ;
+#include <stdint.h>
+extern int16_t compassOffsetX, compassOffsetY, compassOffsetZ;
 extern QMC5883LCompass compass;
 extern bool motorControllerState; 
 extern int headingOffset;
@@ -73,15 +74,14 @@ void performCalibration(unsigned long currentMillis) {
         compassOffsetY = (int)offsetY;
         compassOffsetZ = (int)offsetZ;
 
-        EEPROM.write(0, compassOffsetX & 0xFF);
-        EEPROM.write(1, (compassOffsetX >> 8) & 0xFF);
-        EEPROM.write(2, compassOffsetY & 0xFF);
-        EEPROM.write(3, (compassOffsetY >> 8) & 0xFF);
-        EEPROM.write(4, compassOffsetZ & 0xFF);
-        EEPROM.write(5, (compassOffsetZ >> 8) & 0xFF);
-        EEPROM.commit();
+     // alla fine di performCalibration(), dopo aver calcolato compassOffsetX/Y/Z:
+EEPROM.put<int16_t>(0, compassOffsetX);
+EEPROM.put<int16_t>(2, compassOffsetY);
+EEPROM.put<int16_t>(4, compassOffsetZ);
+EEPROM.commit();
+delay(100);                 // piccola pausa per sicurezza
+debugLog("DEBUG: Calibration complete and offset saved.");
 
-        debugLog("DEBUG: Calibration complete and offset saved.");
     }
 }
 
