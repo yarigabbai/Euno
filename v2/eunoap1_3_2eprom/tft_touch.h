@@ -49,7 +49,11 @@ static const uint16_t buttonColorsMain[NUM_MAIN_BUTTONS] = { 0xD69A, 0xD69A, 0xF
 static const char* secondButtonLabels[NUM_SECOND_BUTTONS] = { "CALIB", "SOURCE", "OFFset", "SET", "EXTBRG", "MENU" };
 static const char* secondButtonActions[NUM_SECOND_BUTTONS] = { "ACTION:CAL", "ACTION:GPS", "ACTION:C-GPS", "IMP", "ACTION:EXT_BRG", "MENU:SWITCH" };
 static const uint16_t buttonColorsSecond[NUM_SECOND_BUTTONS] = { 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60 };
-
+// Menu terziario
+#define NUM_THIRD_BUTTONS 6
+static const char* thirdButtonLabels[NUM_THIRD_BUTTONS]  = { "Cal.Gyro", "Firmware", "Foo", "Bar", "Baz", "MENU" };
+static const char* thirdButtonActions[NUM_THIRD_BUTTONS] = { "ACTION:CAL-GYRO", "SHOW:FIRMWARE", "ACTION:FOO", "ACTION:BAR", "ACTION:BAZ", "MENU:SWITCH" };
+static const uint16_t buttonColorsThird[NUM_THIRD_BUTTONS] = { 0x03E0, 0x07FF, 0xD69A, 0xFDA0, 0xFE60, 0xFDA0 };
 // Slider geometry
 static const int staticAreaHeight = 120;
 static const int sliderX = 10;

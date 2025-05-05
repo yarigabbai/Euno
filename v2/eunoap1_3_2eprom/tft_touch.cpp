@@ -219,6 +219,31 @@ void drawMenu(TFT_eSPI &tft, int menuMode, Parameter params[], int currentParamI
     tft.drawCircle(sliderPos, sliderY + sliderHeight/2, 10, TFT_DARKGREY);
     tft.fillCircle(sliderPos, sliderY + sliderHeight/2, 6, TFT_CYAN);
   }
+
+else if(menuMode == 3) {
+  // Terzo menu (2×3)
+  const int rows = 2, cols = 3, spacing = 8;
+  int btnW = (tft.width()  - (cols+1)*spacing) / cols;
+  int btnH = (tft.height() - staticAreaHeight - (rows+1)*spacing) / rows;
+  for(int i = 0; i < NUM_THIRD_BUTTONS; i++) {
+    int row = i/cols;
+    int col = i%cols;
+    int x = spacing + col*(btnW + spacing);
+    int y = staticAreaHeight + spacing + row*(btnH + spacing);
+    uint16_t base = buttonColorsThird[i];
+    // Ombra
+    tft.fillRoundRect(x+2, y+2, btnW, btnH, 12, TFT_DARKGREY);
+    // Corpo
+    tft.fillRoundRect(x, y, btnW, btnH, 12, base);
+    // Bordo
+    tft.drawRoundRect(x, y, btnW, btnH, 12, TFT_WHITE);
+    // Etichetta
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(thirdButtonLabels[i], x + btnW/2, y + btnH/2);
+  }
+}
 }
 // -------------------------------------
 void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn) {
@@ -275,7 +300,11 @@ void checkTouch(
       if (currentParamIndex >= NUM_PARAMS) menuMode = 0;
     } else {
       if (pendingAction == "MENU:SWITCH") {
-        menuMode = (menuMode == 0) ? 1 : 0;
+        // Ciclo 0 → 1 → 3 → 0
+if      (menuMode == 0) menuMode = 1;
+else if (menuMode == 1) menuMode = 3;
+else                     menuMode = 0;
+
       }
      else if (pendingAction == "ACTION:TOGGLE") {
   handleCommandAP("ACTION:TOGGLE");
@@ -405,6 +434,25 @@ void checkTouch(
         }
       }
     }
+    else if(menuMode == 3) {
+  // Touch sul terzo menu (2×3)
+  const int rows = 2, cols = 3;
+  int btnW = tft.width() / cols;
+  int btnH = (tft.height() - staticAreaHeight) / rows;
+  for(int i = 0; i < NUM_THIRD_BUTTONS; i++) {
+    int bx = (i % cols) * btnW;
+    int by = staticAreaHeight + (i/cols) * btnH;
+    if(x >= bx && x <= bx + btnW && y >= by && y <= by + btnH) {
+      tft.fillRoundRect(bx, by, btnW, btnH, 10, 0xFFFF);
+      pendingAction     = thirdButtonActions[i];
+      pendingButtonType = 1;
+      buttonActionState = BAS_HIGHLIGHT;
+      buttonActionTimestamp = millis();
+      break;
+    }
+  }
+}
+
   }
 }
 
