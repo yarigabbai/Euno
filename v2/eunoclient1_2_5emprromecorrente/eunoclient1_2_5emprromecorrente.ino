@@ -9,7 +9,7 @@
 #include <Update.h> 
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
-
+#include "calibration.h"
 // ###########################################
 // gg### VARIABILI GLOBALI CONDIVISE ###
 // ###########################################
@@ -173,60 +173,8 @@ float errore_precedente = 0;
 
 int direzione_attuatore = 0;
 
-// ###########################################
-// ### FUNZIONI BUSSOLA ###
-// ###########################################
-void resetCalibrationData() {
-    minX = 32767;
-    minY = 32767;
-    minZ = 32767;
-    maxX = -32768;
-    maxY = -32768;
-    maxZ = -32768;
-    debugLog("DEBUG: Calibration data reset");
-}
 
-void performCalibration(unsigned long currentMillis) {
-    if (currentMillis - calibrationStartTime < 10000) {
-        compass.read();
-        float x = compass.getX();
-        float y = compass.getY();
-        float z = compass.getZ();
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (z < minZ) minZ = z;
-        if (z > maxZ) maxZ = z;
-    } else {
-        calibrationMode = false;
-        float offsetX = (maxX + minX) / 2.0;
-        float offsetY = (maxY + minY) / 2.0;
-        float offsetZ = (maxZ + minZ) / 2.0;
-        compassOffsetX = (int)offsetX;
-        compassOffsetY = (int)offsetY;
-        compassOffsetZ = (int)offsetZ;
-        EEPROM.write(0, compassOffsetX & 0xFF);
-        EEPROM.write(1, (compassOffsetX >> 8) & 0xFF);
-        EEPROM.write(2, compassOffsetY & 0xFF);
-        EEPROM.write(3, (compassOffsetY >> 8) & 0xFF);
-        EEPROM.write(4, compassOffsetZ & 0xFF);
-        EEPROM.write(5, (compassOffsetZ >> 8) & 0xFF);
-        EEPROM.commit();
-        debugLog("DEBUG: Calibration complete and offset saved.");
-    }
-}
 
-int getCorrectedHeading() {
-    compass.read();
-    float correctedX = compass.getX() - compassOffsetX;
-    float correctedY = compass.getY() - compassOffsetY;
-    float heading = atan2(correctedY, correctedX) * 180.0 / M_PI;
-    if (heading < 0) heading += 360;
-    // Applica l'offset software salvato (C-GPS)
-    heading = fmod(heading + headingOffset, 360.0);
-    return (int)round(heading);
-}
 
 // ###########################################
 // ### FUNZIONI WIFI/UDP ###
@@ -414,10 +362,14 @@ void handleCommandClient(String command) {
         udp.beginPacket(serverIP, serverPort);
         udp.print("MOTOR:OFF");
         udp.endPacket();  }
-    } else if (command == "ACTION:CAL") {
+    }else if (command == "ACTION:CAL") {
+    if (!calibrationMode) {
         calibrationMode = true;
         calibrationStartTime = millis();
         resetCalibrationData();
+        debugLog("CAL: Inizio calibrazione. Attendi 10 secondi muovendo il sensore...");
+    }
+
     } else if (command == "ACTION:GPS") {
         headingSourceMode++;
         if (headingSourceMode > 2) headingSourceMode = 0;
@@ -735,8 +687,10 @@ else {
     }
 }
 
-    // Gestione calibrazione se attiva
-    if (calibrationMode) {
-        performCalibration(currentMillis);
+ 
     }
+       // Gestione calibrazione se attiva
+ if (calibrationMode) {
+    currentMillis = millis();
+    performCalibration(currentMillis);
 }}
