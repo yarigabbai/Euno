@@ -117,6 +117,27 @@ inline void calibrateGyro() {
   gyroOffsetZ = sum / samples;
   debugLog("DEBUG: Gyro offset Z: " + String(gyroOffsetZ));
 }
+inline void performSensorFusionCalibration() {
+  debugLog("DEBUG: Calibrating accelerometer tilt...");
+  calibrateTilt();
+
+  debugLog("DEBUG: Calibrating gyro...");
+  calibrateGyro();
+
+  headingGyro = getCorrectedHeading();
+  debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
+
+  prevMicros = micros();
+  lastCorrection = millis();
+
+  sensorFusionCalibrated = true;
+  gyroInitialized = true;
+
+  for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = headingGyro;
+  gpsHeadingIndex = 0;
+
+  debugLog("DEBUG: Sensor Fusion calibration completed.");
+}
 
 // Aggiorna la velocità GPS con filtro esponenziale
 inline void updateSmoothedSpeed() {

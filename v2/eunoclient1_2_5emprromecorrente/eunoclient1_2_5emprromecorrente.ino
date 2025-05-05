@@ -413,10 +413,10 @@ void handleCommandClient(String command) {
     }
 }
 else if (command == "ACTION:CAL-GYRO") {
-    debugLog("Avvio calibrazione accelerometro (tilt)...");
-    calibrateTilt();  // questa funzione è già definita in sensor_fusion.h
-    debugLog("Calibrazione completata.");
+  debugLog("Avvio calibrazione completa (tilt + gyro)...");
+  performSensorFusionCalibration();
 }
+
 
      else if (command == "EXT_BRG_ENABLED") {
         externalBearingEnabled = true;
@@ -590,7 +590,9 @@ if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
   lastSensorUpdate = currentMillis;
 
   // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
-  updateSensorFusion();
+//if (!sensorFusionCalibrated) {
+//  performSensorFusionCalibration();
+//}
 
   if (useGPSHeading && gps.speed.isValid() && gps.course.isValid()) {
     currentHeading = (int)round(getFusedHeading());
@@ -647,6 +649,7 @@ const unsigned long sensorUpdateInterval = 100; // ms
         } else if (headingSourceMode == 2) {
             currentHeading = (int)round(headingExp);
         }
+        
         
         // Calcola l'errore e invia i dati via UDP
         int diff = calculateDifference(currentHeading, headingCommand);
