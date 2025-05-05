@@ -18,7 +18,7 @@ WiFiUDP udp;
 IPAddress serverIP(192, 168, 4, 1);
 unsigned int serverPort = 4210;
 char incomingPacket[255];
-int headingSourceMode = 0;  // 0 = COMPASS, 1 = FUSION, 2 = EXPERIMENTAL
+int headingSourceMode = 0;  // 0 = COMPASS, 1 = FUSION, 2 = EXPERIMENTAL, 3 = ADV
 int headingOffset = 0;      // Offset software per la bussola (impostato con C-GPS)
 float smoothedSpeed = 0.0;
 int T_pause = 0;  // Valori da 0 a 9 (cioè da 0 a 900 ms)
@@ -31,6 +31,19 @@ bool shouldStopMotor = false;
 //monitor corrente  su pin 19 e 20 implementare l10 letture in un minuto, poin media e 
 //poi 3 volte quella media ferma il motore in quella direzione
 
+
+// ===========================================
+// Tabella Advanced Calibration (heading vs raw X/Y)
+// ===========================================
+struct AdvCalPoint {
+  float rawX;
+  float rawY;
+  int headingDeg;  // valore reale desiderato (es. 0, 90, 180...)
+};
+
+#define MAX_ADV_POINTS 36  // 1 punto ogni 10°
+AdvCalPoint advTable[MAX_ADV_POINTS];
+int advPointCount = 0;  // Quanti ne sono stati salvati
 //eeprrom
 #include <EEPROM.h>
 #define EEPROM_SIZE 64
@@ -213,6 +226,7 @@ void sendHeadingSource(int mode) {
     if (mode == 0) modeStr = "COMPASS";
     else if (mode == 1) modeStr = "FUSION";
     else if (mode == 2) modeStr = "EXPERIMENTAL";
+   else if (mode == 3) modeStr = "ADV";
     else modeStr = "UNKNOWN";
 
     // Crea messaggio tipo NMEA personalizzato
@@ -373,19 +387,26 @@ void handleCommandClient(String command) {
 
     } else if (command == "ACTION:GPS") {
         headingSourceMode++;
-        if (headingSourceMode > 2) headingSourceMode = 0;
+        if (headingSourceMode > 3) headingSourceMode = 0;
         
         sendHeadingSource(headingSourceMode);  // Notifica l'AP della nuova modalità
         useGPSHeading = (headingSourceMode == 1);  // Imposta il flag in base alla modalità
         
         // Allinea headingCommand al nuovo heading in base alla modalità
-        if (headingSourceMode == 0) {
-            headingCommand = getCorrectedHeading();
-        } else if (headingSourceMode == 1) {
-            headingCommand = (int)round(getFusedHeading());
-        } else if (headingSourceMode == 2) {
-            headingCommand = (int)round(getExperimentalHeading());
-        }
+if (headingSourceMode == 0) {
+    headingCommand = getCorrectedHeading();
+} else if (headingSourceMode == 1) {
+    headingCommand = (int)round(getFusedHeading());
+} else if (headingSourceMode == 2) {
+    headingCommand = (int)round(getExperimentalHeading());
+} else if (headingSourceMode == 3) {
+    compass.read();
+    float rawX = compass.getX();
+    float rawY = compass.getY();
+    headingCommand = applyAdvCalibration(rawX, rawY);  // Funzione che devi avere nel tuo .h/.cpp
+}
+
+
         
         debugLog("Comando allineato al nuovo heading: " + String(headingCommand));
     } else if (command == "ACTION:C-GPS") {
@@ -412,6 +433,32 @@ void handleCommandClient(String command) {
         debugLog("C-GPS fallito: GPS non valido");
     }
 }
+else if (command == "ACTION:ADV") {
+    headingSourceMode = 3; // o un valore coerente
+    sendHeadingSource("ADV");
+}
+
+else if (command == "ACTION:ADV_SAVE") {
+    if (advPointCount < MAX_ADV_POINTS) {
+        compass.read();
+        float rawX = compass.getX();
+        float rawY = compass.getY();
+
+        advTable[advPointCount].rawX = rawX;
+        advTable[advPointCount].rawY = rawY;
+        advTable[advPointCount].headingDeg = headingCommand;  // Oppure currentHeading
+
+        debugLog("ADV: Salvato punto #" + String(advPointCount) +
+                 " → X=" + String(rawX) +
+                 " Y=" + String(rawY) +
+                 " → heading=" + String(headingCommand));
+
+        advPointCount++;
+    } else {
+        debugLog("ADV: Tabella piena");
+    }
+}
+
 else if (command == "ACTION:CAL-GYRO") {
   debugLog("Avvio calibrazione completa (tilt + gyro)...");
   performSensorFusionCalibration();
@@ -643,13 +690,19 @@ const unsigned long sensorUpdateInterval = 100; // ms
         
         // Seleziona il currentHeading in base alla modalità attiva
         if (headingSourceMode == 0) {
-            currentHeading = headingCompass;
-        } else if (headingSourceMode == 1) {
-            currentHeading = (int)round(headingFusion);
-        } else if (headingSourceMode == 2) {
-            currentHeading = (int)round(headingExp);
-        }
-        
+    currentHeading = getCorrectedHeading();
+} else if (headingSourceMode == 1) {
+    currentHeading = (int)round(getFusedHeading());
+} else if (headingSourceMode == 2) {
+    currentHeading = (int)round(getExperimentalHeading());
+} else if (headingSourceMode == 3) {
+  currentHeading = (int)round(getAdvancedHeading());
+    compass.read();
+    float rawX = compass.getX();
+    float rawY = compass.getY();
+    currentHeading = applyAdvCalibration(rawX, rawY);
+}
+        currentHeading = (currentHeading + 360) % 360;
         
         // Calcola l'errore e invia i dati via UDP
         int diff = calculateDifference(currentHeading, headingCommand);
@@ -718,3 +771,23 @@ else {
     currentMillis = millis();
     performCalibration(currentMillis);
 }}
+int applyAdvCalibration(float x, float y) {
+  if (advPointCount == 0) return 0;
+
+  float bestDist = 1e9;
+  int bestHeading = 0;
+
+  for (int i = 0; i < advPointCount; i++) {
+    float dx = x - advTable[i].rawX;
+    float dy = y - advTable[i].rawY;
+    float dist = sqrt(dx * dx + dy * dy);
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestHeading = advTable[i].headingDeg;
+    }
+  }
+
+  return bestHeading;
+}
+

@@ -31,6 +31,7 @@ float gyroOffsetZ    = 0;     // Offset di zero del giroscopio (asse Z)
 // Heading principali:
 float headingGyro = 0.0;         // Il valore “fuso” da IMU + GPS
 float headingExperimental = 0.0; // Filtro sperimentale aggiuntivo
+float getAdvancedHeading();  // nuovo algoritmo “ADV”
 
 // Buffer per correzione media GPS
 float gpsHeadingBuffer[5];
@@ -236,5 +237,10 @@ inline void updateExperimental(float input) {
 inline float getExperimentalHeading() {
   return headingExperimental;
 }
+inline float getAdvancedHeading() {
+    // per ora ricicliamo experimental, qui puoi mettere il tuo algoritmo ADV
+    return headingExperimental;
+}
+
 
 #endif // SENSOR_FUSION_H

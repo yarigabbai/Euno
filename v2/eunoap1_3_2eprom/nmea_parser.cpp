@@ -177,6 +177,9 @@ modeStr.replace("*", "");       // Rimuove l'asterisco finale
     else if (modeStr == "EXPERIMENTAL") {
         headingLabel = "H.Expmt";
     }
+    else if (modeStr == "ADV") {
+    headingLabel = "H.Advanced";
+}
     else {
         headingLabel = "Heading";
     }
@@ -308,6 +311,11 @@ saveParamsToEEPROM();
     udp.print(command);
     udp.endPacket();
   }
+else if (command == "ACTION:EXPCAL") {
+    udp.beginPacket(clientIP, clientPort);
+    udp.print(command);
+    udp.endPacket();
+}
 
   // 3) Altrimenti, forward generico
   else {
