@@ -8,10 +8,16 @@
 #include "sensor_fusion.h"  // Include il nostro modulo sensor fusion
 #include <Update.h> 
 #include <stdint.h>
+#include "ADV_CALIBRATION.h"    
+
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
 #include "calibration.h"
-// ###########################################
+// ‼️ forward-declarations ‼️
+void handleAdvancedCalibrationCommand(const String& cmd);   // arriverà più avanti
+int  applyAdvCalibration(float x, float y);                 // è già definita in fondo
+
+
 // gg### VARIABILI GLOBALI CONDIVISE ###
 // ###########################################
 WiFiUDP udp;
@@ -306,8 +312,15 @@ void stopMotor() {
     analogWrite(3, 0);
     analogWrite(46, 0);
 }
+void handleAdvancedCalibrationCommand(const String& cmd) {
+    // TODO: Gestisci comandi specifici per la calibrazione avanzata
+    if (cmd == "ADV_CANCEL") {
+        advCalibrationMode = false;
+    }
+}
 
 void handleCommandClient(String command) {
+  handleAdvancedCalibrationCommand(command);
     debugLog("DEBUG(UDP): Comando ricevuto -> " + command);
     
     if (command.startsWith("CMD:")) {
@@ -433,11 +446,19 @@ if (headingSourceMode == 0) {
         debugLog("C-GPS fallito: GPS non valido");
     }
 }
+
+
 else if (command == "ACTION:ADV") {
     headingSourceMode = 3; // o un valore coerente
-    sendHeadingSource("ADV");
-}
+sendHeadingSource(3);  // 3 corrisponde a modalità ADVANCED
 
+}
+else if (command == "ACTION:EXPCAL") {
+    debugLog("DEBUG: Avvio calibrazione ADVANCED");
+    startAdvancedCalibration();  
+     headingSourceMode = 3;       
+    sendHeadingSource(3);     
+}
 else if (command == "ACTION:ADV_SAVE") {
     if (advPointCount < MAX_ADV_POINTS) {
         compass.read();
@@ -637,9 +658,7 @@ if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
   lastSensorUpdate = currentMillis;
 
   // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
-//if (!sensorFusionCalibrated) {
-//  performSensorFusionCalibration();
-//}
+
 
   if (useGPSHeading && gps.speed.isValid() && gps.course.isValid()) {
     currentHeading = (int)round(getFusedHeading());
@@ -648,14 +667,22 @@ if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
     currentHeading = getCorrectedHeading();
   }
 
-  // 👀 (opzionale: stampa per debug)
-  // Serial.println("Heading aggiornato: " + String(currentHeading));
+
 }
 
     
     // Aggiornamento sensori ad alta frequenza
     updateSensorFusion();
     
+    //gestione loop adv
+    if (isAdvancedCalibrationMode()) {
+    updateAdvancedCalibration(headingGyro, compass.getAzimuth());
+    if (isAdvancedCalibrationComplete()) {
+        debugLog("DEBUG: Calibrazione ADVANCED completata");
+        // saveAdvancedCalibrationToEEPROM(); // se vuoi salvarla in modo permanente
+    }
+}
+
     // Gestione comandi UDP in arrivo
     int packetSize = udp.parsePacket();
     if (packetSize > 0) {
@@ -696,7 +723,7 @@ const unsigned long sensorUpdateInterval = 100; // ms
 } else if (headingSourceMode == 2) {
     currentHeading = (int)round(getExperimentalHeading());
 } else if (headingSourceMode == 3) {
-  currentHeading = (int)round(getAdvancedHeading());
+    currentHeading = getAdvancedHeading(getCorrectedHeading());
     compass.read();
     float rawX = compass.getX();
     float rawY = compass.getY();

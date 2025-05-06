@@ -179,6 +179,8 @@ modeStr.replace("*", "");       // Rimuove l'asterisco finale
     }
     else if (modeStr == "ADV") {
     headingLabel = "H.Advanced";
+    infoLabels[0] = headingLabel;
+    updateDataBox(tft, 0, "ADV");
 }
     else {
         headingLabel = "Heading";

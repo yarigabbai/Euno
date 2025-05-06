@@ -237,10 +237,6 @@ inline void updateExperimental(float input) {
 inline float getExperimentalHeading() {
   return headingExperimental;
 }
-inline float getAdvancedHeading() {
-    // per ora ricicliamo experimental, qui puoi mettere il tuo algoritmo ADV
-    return headingExperimental;
-}
 
 
 #endif // SENSOR_FUSION_H
