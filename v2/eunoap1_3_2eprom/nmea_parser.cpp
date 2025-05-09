@@ -47,6 +47,8 @@ void parseNMEA(String nmea,
   Serial.println("DEBUG: parseNMEA() chiamata con: " + nmea);
 
   if (nmea.startsWith("$AUTOPILOT,")) {
+    Serial.println("DEBUG(AP): ricevo da client → " + nmea);
+
     // =======================
     // Esempio: $AUTOPILOT,HEADING=123,COMMAND=140,ERROR=17,GPS_HEADING=...,GPS_SPEED=...
     // =======================
@@ -177,11 +179,10 @@ modeStr.replace("*", "");       // Rimuove l'asterisco finale
     else if (modeStr == "EXPERIMENTAL") {
         headingLabel = "H.Expmt";
     }
-    else if (modeStr == "ADV") {
+  else if (modeStr == "ADV") {
     headingLabel = "H.Advanced";
-    infoLabels[0] = headingLabel;
-    updateDataBox(tft, 0, "ADV");
 }
+
     else {
         headingLabel = "Heading";
     }
@@ -204,7 +205,7 @@ modeStr.replace("*", "");       // Rimuove l'asterisco finale
     tft.drawString(headingLabel, x + 2, y + 2);
 
     // Mostra ↻ temporaneo
-    updateDataBox(tft, 0, "↻");
+   // updateDataBox(tft, 0, "↻");
 }
 
 

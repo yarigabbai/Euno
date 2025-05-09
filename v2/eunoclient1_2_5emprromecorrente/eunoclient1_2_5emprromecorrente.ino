@@ -216,9 +216,10 @@ void sendNMEAData(int currentHeading, int headingCommand, int error, TinyGPSPlus
     nmeaData += "E_min=" + String(E_min) + ",";
     nmeaData += "E_max=" + String(E_max) + ",";
     nmeaData += "E_tol=" + String(E_tol) + ",";
-nmeaData += "T_risposta=" + String(T_risposta) + ",";
-    nmeaData += "T_pause=" + String(T_pause) + "*";
-    
+    nmeaData += "T_risposta=" + String(T_risposta) + ",";
+    nmeaData += "T_pause=" + String(T_pause) + ",";
+    nmeaData += "V_min=" + String(V_min) + ",";
+    nmeaData += "V_max=" + String(V_max) + "*";
     udp.beginPacket(serverIP, serverPort);
     udp.write((const uint8_t*)nmeaData.c_str(), nmeaData.length());
     udp.endPacket();
@@ -449,10 +450,20 @@ if (headingSourceMode == 0) {
 
 
 else if (command == "ACTION:ADV") {
-    headingSourceMode = 3; // o un valore coerente
-sendHeadingSource(3);  // 3 corrisponde a modalità ADVANCED
+    headingSourceMode = 3; // Imposta la modalità ADVANCED
+    sendHeadingSource(3);  // Notifica l'AP della nuova modalità
 
+    // Leggi i valori grezzi della bussola
+    compass.read();
+    float rawX = compass.getX();
+    float rawY = compass.getY();
+
+    // Applica la calibrazione avanzata per ottenere l'heading calibrato
+    headingCommand = applyAdvCalibration(rawX, rawY);
+
+    debugLog("DEBUG(ADV): headingCommand aggiornato a " + String(headingCommand));
 }
+
 else if (command == "ACTION:EXPCAL") {
     debugLog("DEBUG: Avvio calibrazione ADVANCED");
     startAdvancedCalibration();  
@@ -656,7 +667,12 @@ void loop() {
     // Lettura sensori ogni 100 ms
 if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
   lastSensorUpdate = currentMillis;
-
+ if (isAdvancedCalibrationMode()) {
+            updateAdvancedCalibration(headingGyro, getCorrectedHeading());
+            if (isAdvancedCalibrationComplete()) {
+                debugLog("Calibrazione completata");
+            }
+        }
   // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
 
 
@@ -716,23 +732,28 @@ const unsigned long sensorUpdateInterval = 100; // ms
         float headingExp = getExperimentalHeading();     // fusione sperimentale
         
         // Seleziona il currentHeading in base alla modalità attiva
-        if (headingSourceMode == 0) {
+   if (headingSourceMode == 0) {
     currentHeading = getCorrectedHeading();
 } else if (headingSourceMode == 1) {
-    currentHeading = (int)round(getFusedHeading());
+    currentHeading = round(getFusedHeading());
 } else if (headingSourceMode == 2) {
-    currentHeading = (int)round(getExperimentalHeading());
+    currentHeading = round(getExperimentalHeading());
 } else if (headingSourceMode == 3) {
-    currentHeading = getAdvancedHeading(getCorrectedHeading());
     compass.read();
     float rawX = compass.getX();
     float rawY = compass.getY();
-    currentHeading = applyAdvCalibration(rawX, rawY);
+    currentHeading = applyAdvCalibration(rawX, rawY);  // ✅ Questo valore andrà in HEADING=
 }
+
+int diff = calculateDifference(currentHeading, headingCommand);
+
+// ✅ Questo invia il valore aggiornato
+sendNMEAData(currentHeading, headingCommand, diff, gps);
+
         currentHeading = (currentHeading + 360) % 360;
         
         // Calcola l'errore e invia i dati via UDP
-        int diff = calculateDifference(currentHeading, headingCommand);
+        diff = calculateDifference(currentHeading, headingCommand);
         sendNMEAData(currentHeading, headingCommand, diff, gps);
          }
     if (motorControllerState) {
@@ -799,11 +820,16 @@ else {
     performCalibration(currentMillis);
 }}
 int applyAdvCalibration(float x, float y) {
-  if (advPointCount == 0) return 0;
-
+  if (advPointCount == 0) {
+    // Se non ci sono punti di calibrazione, ritorna l'heading normale
+    float heading = atan2(y, x) * 180.0 / M_PI;
+    if (heading < 0) heading += 360;
+    return (int)round(heading);
+  }
+  
   float bestDist = 1e9;
   int bestHeading = 0;
-
+  
   for (int i = 0; i < advPointCount; i++) {
     float dx = x - advTable[i].rawX;
     float dy = y - advTable[i].rawY;
@@ -817,4 +843,3 @@ int applyAdvCalibration(float x, float y) {
 
   return bestHeading;
 }
-

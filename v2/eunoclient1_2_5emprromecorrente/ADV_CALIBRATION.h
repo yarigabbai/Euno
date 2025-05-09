@@ -3,31 +3,20 @@
 
 #include <Arduino.h>
 #include <math.h>
+#include <QMC5883LCompass.h>
 
-//════════════════════════════════════════════════════════════
-//  ADV‑CALIBRATION v2
-//  ───────────────────────────────────────────────────────────
-//  Obiettivo: misurare e compensare lo "shift" della bussola
-//  in ogni settore di 10° prendendo il GYRO (o GPS) come vero
-//  riferimento.
-//
-//  Durante la calibrazione salviamo direttamente la DEVIAZIONE
-//  ◂ dev[idx] = compassRaw − gyroDeg   (±180°)
-//  In uso normale applichiamo:         heading = compassRaw − dev[idx]
-//════════════════════════════════════════════════════════════
+#define ADV_SECTORS 36   // 360° / 10° sectors
 
-#ifndef ADV_SECTORS
-#define ADV_SECTORS 36   // 360 / 10
-#endif
+struct SectorCalibration {
+    float deviation;     // saved deviation (±180°)
+    bool calibrated;     // true if sector is calibrated
+};
 
-static float advDeviation[ADV_SECTORS];   // deviazione salvata (±180°)
-static bool  advCalibrated[ADV_SECTORS];  // true se settore calibrato
-static int   advCalibratedCount = 0;
-static bool  advCalibrationMode = false;
+static SectorCalibration advCalData[ADV_SECTORS];
+static int advCalibratedCount = 0;
+static bool advCalibrationMode = false;
 
-// ──────────────────────────────────────────────────────────────
-//  Helper: normalizza a 0‑359°
-// ──────────────────────────────────────────────────────────────
+// Helper: Normalize angle to 0-359°
 static inline int norm360(float deg) {
     int v = (int)round(deg);
     v %= 360;
@@ -35,78 +24,76 @@ static inline int norm360(float deg) {
     return v;
 }
 
-// differenza circolare a‑b in range –180 … +180
+// Helper: Circular difference (-180° to +180°)
 static inline float circDiff(float a, float b) {
     float d = fmodf((a - b + 540.0f), 360.0f) - 180.0f;
-    return d;  // può essere negativa
+    return d;
 }
 
-static inline int sectorIndex(int degrees) { return (degrees % 360) / 10; }
+// Get sector index (0-35)
+static inline int sectorIndex(int degrees) {
+    return (degrees % 360) / 10;
+}
 
-// ──────────────────────────────────────────────────────────────
-//  1️⃣  Avvio calibrazione
-// ──────────────────────────────────────────────────────────────
+// Start calibration procedure
 static inline void startAdvancedCalibration() {
     advCalibratedCount = 0;
     advCalibrationMode = true;
     for (int i = 0; i < ADV_SECTORS; i++) {
-        advCalibrated[i] = false;
-        advDeviation[i]  = 0.0f;
+        advCalData[i].calibrated = false;
+        advCalData[i].deviation = 0.0f;
     }
-    Serial.println("[CAL] iniziata: ruota la barca di 360°");
+    Serial.println("[CAL] Advanced calibration started");
 }
 
-static inline bool isAdvancedCalibrationMode()      { return advCalibrationMode; }
-static inline bool isAdvancedCalibrationComplete() { return advCalibratedCount >= ADV_SECTORS; }
-
-// ──────────────────────────────────────────────────────────────
-//  2️⃣  Durante il giro: salva la deviazione bussola‑gyro
-//      ▸ gyroDeg      = heading "vero" (gyro+GPS)
-//      ▸ compassDeg   = lettura grezza bussola
-// ──────────────────────────────────────────────────────────────
+// Update calibration with reference data (compatible with original .ino calls)
 static inline void updateAdvancedCalibration(float gyroDeg, float compassDeg) {
     if (!advCalibrationMode) return;
 
-    gyroDeg    = norm360(gyroDeg);
+    gyroDeg = norm360(gyroDeg);
     compassDeg = norm360(compassDeg);
 
-    int   idx = sectorIndex((int)gyroDeg);
-    float dev = circDiff(compassDeg, gyroDeg);   // quanto sbaglia bussola
+    int idx = sectorIndex((int)gyroDeg);
+    float dev = circDiff(compassDeg, gyroDeg);
 
-    if (!advCalibrated[idx]) {
-        advDeviation[idx]  = dev;               // salva deviazione
-        advCalibrated[idx] = true;
+    if (!advCalData[idx].calibrated) {
+        advCalData[idx].deviation = dev;
+        advCalData[idx].calibrated = true;
         advCalibratedCount++;
-        Serial.printf("[CAL] set=%02d  gyro=%6.1f  comp=%6.1f  dev=%7.2f  (%d/36)\n",
-                      idx, gyroDeg, compassDeg, dev, advCalibratedCount);
+        
+        Serial.printf("[CAL] Sector %02d: Gyro=%.1f° Comp=%.1f° Dev=%.2f° (%d/36)\n",
+                     idx, gyroDeg, compassDeg, dev, advCalibratedCount);
     }
 
     if (advCalibratedCount >= ADV_SECTORS) {
         advCalibrationMode = false;
-        Serial.println("[CAL] completata ✅ tutte le deviazioni registrate");
+        Serial.println("[CAL] Advanced calibration complete");
     }
 }
 
-// ──────────────────────────────────────────────────────────────
-//  3️⃣  Uso normale: applica la correzione
-// ──────────────────────────────────────────────────────────────
+// Get calibrated heading (compatible with original .ino calls)
 static inline int getAdvancedHeading(float compassDegRaw) {
     float compassDeg = norm360(compassDegRaw);
-    int   idx        = sectorIndex((int)compassDeg);
+    int idx = sectorIndex((int)compassDeg);
 
-    Serial.printf("[ADV] raw=%6.1f°  set=%02d  ", compassDeg, idx);
+    Serial.printf("[ADV] Raw=%.1f° Sector=%02d ", compassDeg, idx);
 
-    if (!advCalibrated[idx]) {
-        Serial.println("calib=✖ → grezzo");
+    if (!advCalData[idx].calibrated) {
+        Serial.println("Uncalibrated → Using raw");
         return (int)compassDeg;
     }
 
-    float corr   = compassDeg - advDeviation[idx];   // rimuovi deviazione
-    int   out    = norm360(corr);
+    float corr = compassDeg - advCalData[idx].deviation;
+    int out = norm360(corr);
 
-    Serial.printf("calib=✔ dev=%7.2f  corr=%6.1f  → %3d°\n",
-                  advDeviation[idx], corr, out);
+    Serial.printf("Calibrated (Dev=%.2f° Corr=%.1f°) → %d°\n",
+                 advCalData[idx].deviation, corr, out);
+    
     return out;
 }
+
+// Compatibility functions
+static inline bool isAdvancedCalibrationMode() { return advCalibrationMode; }
+static inline bool isAdvancedCalibrationComplete() { return advCalibratedCount >= ADV_SECTORS; }
 
 #endif // ADV_CALIBRATION_H
