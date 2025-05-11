@@ -6,7 +6,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <html>
 <head>
   <meta charset="UTF-8">
-  <!-- Viewport per mobile/responsive -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EUNO Autopilot</title>
   <style>
@@ -22,7 +21,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
     .container {
       width: 100%;
-      max-width: 600px; /* per centrare su desktop */
+      max-width: 600px;
       margin: 0 auto;
       padding: 10px;
     }
@@ -81,7 +80,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       background: #f1c40f;
       color: #000;
     }
-    /* Sezione parametri nascosta di default */
     #paramSection {
       display: none;
       background-color: #222;
@@ -109,7 +107,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       color: #0f0;
       min-height: 1.2em;
     }
-    /* Banner OTA */
     #otaBanner {
       display: none;
       margin: 20px auto;
@@ -122,7 +119,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       width: 80%;
       text-align: center;
     }
-    /* Barra di avanzamento OTA */
     .progress-bar {
       width: 100%;
       background-color: #333;
@@ -142,12 +138,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <body>
   <h1>EUNO Autopilot</h1>
 
-  <!-- Banner OTA -->
   <div id="otaBanner"></div>
 
   <div class="container">
-
-    <!-- Riquadri di stato (Heading, Cmd, Err, GPS, Spd, ON/OFF) -->
     <div class="grid">
       <div class="box">
         <div class="label">Heading</div>
@@ -174,30 +167,25 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
-    <!-- Menu principale -->
     <div id="menu" class="buttons">
       <button class="blue" onclick="send('ACTION:-1')">-1</button>
       <button class="blue" onclick="send('ACTION:+1')">+1</button>
       <button class="blue" onclick="send('ACTION:-10')">-10</button>
       <button class="blue" onclick="send('ACTION:+10')">+10</button>
-       <button class="orange" onclick="send('ACTION:TOGGLE')">ON/OFF</button>
+      <button class="orange" onclick="send('ACTION:TOGGLE')">ON/OFF</button>
       <button class="orange" onclick="toggleMenu()">MENU</button>
     </div>
 
-    <!-- Menu secondario (inizialmente nascosto) -->
     <div id="menu2" class="buttons" style="display:none;">
       <button class="yellow" onclick="send('ACTION:CAL')">CALIB</button>
       <button class="yellow" onclick="send('ACTION:GPS')">GPS</button>
       <button class="yellow" onclick="send('ACTION:C-GPS')">C-GPS</button>
-      <!-- Pulsante per mostrare la sezione parametri -->
       <button class="blue" onclick="toggleParamSection()">Parametri</button>
       <button class="yellow" onclick="send('ACTION:EXT_BRG')">EXTBRG</button>
       <button class="yellow" onclick="send('ACTION:CAL-GYRO')">GYRO</button>
-
       <button class="blue" onclick="toggleMenu()">MENU</button>
     </div>
 
-    <!-- Sezione Parametri (sliders) -->
     <div id="paramSection">
       <h3>Regolazione Parametri</h3>
       <div class="param-row">
@@ -225,14 +213,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <input type="range" id="Deadband" min="0" max="50" value="10" oninput="updateLabel('Deadband')">
         <span id="Deadband_val">10</span>
       </div>
-    <div class="param-row">
-  <label for="T_risposta">T&nbsp;resp&nbsp;[s]:</label>
-  <input type="range" id="T_risposta"
-         min="3" max="12" value="8"
-         oninput="updateLabel('T_risposta')">
-  <span id="T_risposta_val">8</span>
-</div>
-
+      <div class="param-row">
+        <label for="T_risposta">T resp [s]:</label>
+        <input type="range" id="T_risposta" min="3" max="12" value="8" oninput="updateLabel('T_risposta')">
+        <span id="T_risposta_val">8</span>
+      </div>
       <div class="param-row">
         <label for="T_pause">T_pause:</label>
         <input type="range" id="T_pause" min="0" max="9" value="0" oninput="updateLabel('T_pause')">
@@ -242,30 +227,18 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <div id="paramConfirm"></div>
     </div>
 
-    <h2>OTA WebSocket Client</h2>
-    <input type="file" id="otaFile">
-    <button onclick="startWebSocketOTA()">Invia via WebSocket</button>
+    <!-- Sezione OTA Aggiornata -->
+    <h2>OTA WebSocket Update</h2>
+    <div style="margin-bottom: 20px;">
+      <input type="file" id="otaFile">
+      <button class="blue" onclick="startOTA('ap')">Aggiorna AP</button>
+      <button class="blue" onclick="startOTA('client')">Aggiorna Client</button>
+    </div>
     <div id="otaWsStatus" style="margin-top:10px;color:#0f0;"></div>
-
-    <hr>
-    <h2>OTA Update (AP)</h2>
-    <form method="POST" action="/update" enctype="multipart/form-data">
-      <input type="file" name="update" accept=".bin">
-      <input type="submit" value="Carica & Aggiorna">
-    </form>
-
-    <hr>
-    <h2>OTA Update Client</h2>
-    <form method="POST" action="/update_client" enctype="multipart/form-data">
-      <input type="file" name="update" accept=".bin">
-      <input type="submit" value="Carica & Aggiorna Client">
-    </form>
-    <div id="otaStatus"></div>
     <div class="progress-bar">
       <div id="otaProgress" class="progress-bar-fill"></div>
     </div>
 
-    <!-- Console Seriale -->
     <div id="serialConsole" style="background-color:#111; color:#0f0; padding:10px; border:1px solid #444; border-radius:8px; height:150px; overflow:auto; font-family:monospace; font-size:12px;">
       <strong>Console seriale</strong><br>
       <div id="serialLog" style="height:200px; overflow-y:auto; background:black; color:lime; padding:10px; font-family:monospace; font-size:14px;">
@@ -273,22 +246,21 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
     </div>
 
-  </div><!-- fine container -->
+  </div>
 
   <script>
+    const ws = new WebSocket("ws://" + location.hostname + ":81/");
+
     function appendToConsole(text) {
       const log = document.getElementById("serialLog");
       const newLine = document.createElement("div");
       newLine.textContent = text;
       log.appendChild(newLine);
-      log.scrollTop = log.scrollHeight; // auto-scroll
+      log.scrollTop = log.scrollHeight;
     }
-
-    const ws = new WebSocket("ws://" + location.hostname + ":81/");
 
     ws.onopen = function() {
       console.log("WebSocket connesso");
-      // Richiedi i parametri correnti al server
       ws.send("GET_PARAMS");
     };
 
@@ -296,7 +268,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       const msg = evt.data;
       console.log("WS:", msg);
 
-      // Gestione messaggi LOG:
       if (msg.startsWith("LOG:")) {
         appendToConsole(msg.substring(4));
         return;
@@ -347,7 +318,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       else if (msg.startsWith("OTA_PROGRESS:")) {
         const progress = msg.substring(13);
         document.getElementById("otaProgress").style.width = progress + "%";
-        document.getElementById("otaStatus").innerHTML =
+        document.getElementById("otaWsStatus").innerHTML =
           `<div style="color:#4CAF50;">Aggiornamento in corso: ${progress}%</div>`;
       }
       else if (msg === "OTA_COMPLETE_AP") {
@@ -357,18 +328,17 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         showOtaBanner("OTA Client completato con successo!");
       }
       else if (msg === "MOTOR:ON") {
-  const el = document.getElementById("statusBox");
-  const txt = el.querySelector(".value");
-  txt.innerText = "ON";
-  el.className = "box green";
-}
-else if (msg === "MOTOR:OFF") {
-  const el = document.getElementById("statusBox");
-  const txt = el.querySelector(".value");
-  txt.innerText = "OFF";
-  el.className = "box red";
-}
-
+        const el = document.getElementById("statusBox");
+        const txt = el.querySelector(".value");
+        txt.innerText = "ON";
+        el.className = "box green";
+      }
+      else if (msg === "MOTOR:OFF") {
+        const el = document.getElementById("statusBox");
+        const txt = el.querySelector(".value");
+        txt.innerText = "OFF";
+        el.className = "box red";
+      }
     };
 
     function showOtaBanner(text) {
@@ -383,7 +353,6 @@ else if (msg === "MOTOR:OFF") {
     function send(cmd) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(cmd);
-     
       }
     }
 
@@ -425,33 +394,62 @@ else if (msg === "MOTOR:OFF") {
       }
     }
 
-    function startWebSocketOTA() {
-      const fileInput = document.getElementById("otaFile");
-      if (!fileInput.files.length) {
-        alert("Seleziona un file .bin");
-        return;
-      }
-      const file = fileInput.files[0];
-      const chunkSize = 1024;
-      let offset = 0;
-      ws.send("$OTA_BIN:" + file.size);
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const buffer = e.target.result;
-        ws.send(buffer);
-        offset += buffer.byteLength;
-        let percent = Math.floor((offset / file.size) * 100);
-        document.getElementById("otaWsStatus").innerText = `Progress: ${percent}%`;
-        if (offset < file.size) {
-          sendNextChunk();
-        } else {
-          document.getElementById("otaWsStatus").innerText = "OTA invio completato. Riavvio in corso...";
+   function startOTA(target) {
+    const fileInput = document.getElementById("otaFile");
+    if (!fileInput.files.length) return;
+
+    const file = fileInput.files[0];
+    const chunkSize = 1024;
+    let offset = 0;
+    
+    ws.send(target === 'client' ? "$OTA_CLIENT:" + file.size : "$OTA_AP:" + file.size);
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(e.target.result);
+            offset += e.target.result.byteLength;
+            
+            // Aggiorna progresso
+            const percent = Math.floor((offset / file.size) * 100);
+            document.getElementById("otaProgress").style.width = percent + "%";
+            document.getElementById("otaWsStatus").innerText = 
+                `Caricamento ${target}: ${percent}%`;
+            
+            // Prossimo chunk
+            if (offset < file.size) {
+                setTimeout(() => {
+                    const nextChunk = file.slice(offset, offset + chunkSize);
+                    reader.readAsArrayBuffer(nextChunk);
+                }, 20);
+            } else {
+                ws.send("OTA_END");
+                document.getElementById("otaWsStatus").innerText = 
+                    "Completato! Riavvio...";
+            }
         }
-      };
-      function sendNextChunk() {
-        const slice = file.slice(offset, offset + chunkSize);
-        reader.readAsArrayBuffer(slice);
+    };
+    
+    // Avvia
+    const firstChunk = file.slice(0, chunkSize);
+    reader.readAsArrayBuffer(firstChunk);
+}
+      
+      function updateProgress(offset, total, target) {
+        const percent = Math.floor((offset / total) * 100);
+        const targetStr = target === 'client' ? "Client" : "AP";
+        document.getElementById("otaWsStatus").innerText = 
+          `Invio OTA ${targetStr}: ${percent}%`;
+        document.getElementById("otaProgress").style.width = percent + "%";
       }
+      
+        function sendNextChunk() {
+        if (offset >= file.size) {
+            document.getElementById("otaWsStatus").innerText = 
+                "Invio completato. Attendere riavvio...";
+            return;
+        }
+      
       sendNextChunk();
     }
   </script>

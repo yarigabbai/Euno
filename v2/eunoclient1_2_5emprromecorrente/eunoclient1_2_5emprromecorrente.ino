@@ -382,7 +382,7 @@ void handleCommandClient(String command) {
     motorControllerState = !motorControllerState;
     if (motorControllerState) {
         headingCommand = currentHeading;
-        debugLog("DEBUG(UDP): Motor controller acceso. Heading resettato.");
+        debugLog("DEBUG(UDP): STOCAZZOMotor controller acceso. Heading resettato.");
         udp.beginPacket(serverIP, serverPort);
         udp.print("MOTOR:ON");
         udp.endPacket();
