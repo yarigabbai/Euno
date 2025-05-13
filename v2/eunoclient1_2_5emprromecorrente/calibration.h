@@ -1,3 +1,20 @@
+/*
+  EUNO Autopilot – © 2025 Yari Gabbai
+
+  Licensed under CC BY-NC 4.0:
+  Creative Commons Attribution-NonCommercial 4.0 International
+
+  You are free to use, modify, and share this code
+  for NON-COMMERCIAL purposes only.
+
+  You must credit the original author:
+  Yari Gabbai / EUNO Autopilot
+
+  Full license text:
+  https://creativecommons.org/licenses/by-nc/4.0/legalcode
+*/
+
+
 // ===================
 // File: calibration.h
 // ===================
