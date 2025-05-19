@@ -56,18 +56,8 @@ bool shouldStopMotor = false;
 //poi 3 volte quella media ferma il motore in quella direzione
 
 
-// ===========================================
-// Tabella Advanced Calibration (heading vs raw X/Y)
-// ===========================================
-struct AdvCalPoint {
-  float rawX;
-  float rawY;
-  int headingDeg;  // valore reale desiderato (es. 0, 90, 180...)
-};
 
-#define MAX_ADV_POINTS 36  // 1 punto ogni 10°
-AdvCalPoint advTable[MAX_ADV_POINTS];
-int advPointCount = 0;  // Quanti ne sono stati salvati
+
 //eeprrom
 #include <EEPROM.h>
 #define EEPROM_SIZE 64
@@ -489,7 +479,7 @@ else if (command == "ACTION:EXPCAL") {
     sendHeadingSource(3);     
 }
 else if (command == "ACTION:ADV_SAVE") {
-    if (advPointCount < MAX_ADV_POINTS) {
+ if (advPointCount < ADV_SECTORS) {
         compass.read();
         float rawX = compass.getX();
         float rawY = compass.getY();
@@ -626,7 +616,8 @@ void readSensors() {
 // ###########################################
 void setup() {
     Serial.begin(115200);
-    EEPROM.begin(512);
+    EEPROM.begin(2048);
+    loadAdvCalibrationFromEEPROM();
     Serial.printf("EEPROM 0..5 →  %02X %02X  %02X %02X  %02X %02X\n",
               EEPROM.read(0), EEPROM.read(1),
               EEPROM.read(2), EEPROM.read(3),
@@ -686,10 +677,13 @@ void loop() {
 if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
   lastSensorUpdate = currentMillis;
  if (isAdvancedCalibrationMode()) {
-            updateAdvancedCalibration(headingGyro, getCorrectedHeading());
+  compass.read();
+updateAdvancedCalibration(headingGyro, compass.getX(), compass.getY(), compass.getZ());
+
             if (isAdvancedCalibrationComplete()) {
-                debugLog("Calibrazione completata");
-            }
+    saveAdvCalibrationToEEPROM();
+    debugLog("Calibrazione completata. ADV salvata su EEPROM.");
+}
         }
   // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
 
@@ -710,7 +704,9 @@ if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
     
     //gestione loop adv
     if (isAdvancedCalibrationMode()) {
-    updateAdvancedCalibration(headingGyro, compass.getAzimuth());
+   compass.read();
+updateAdvancedCalibration(headingGyro, compass.getX(), compass.getY(), compass.getZ());
+
     if (isAdvancedCalibrationComplete()) {
         debugLog("DEBUG: Calibrazione ADVANCED completata");
         // saveAdvancedCalibrationToEEPROM(); // se vuoi salvarla in modo permanente

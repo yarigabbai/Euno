@@ -14,31 +14,35 @@
   https://creativecommons.org/licenses/by-nc/4.0/legalcode
 */
 
-
-
 #ifndef ADV_CALIBRATION_H
 #define ADV_CALIBRATION_H
 
 #include <Arduino.h>
 #include <math.h>
+#include <EEPROM.h>
 #include <QMC5883LCompass.h>
 
-#define ADV_SECTORS 36
-#define SMOOTHING_FACTOR 0.2f
+// ---------- CONFIGURAZIONE ----------
 
-struct SectorCalibration {
-    float compassX;
-    float compassY;
-    float compassZ;
-    float gyroAngle;
+#define ADV_SECTORS 72          // Numero di settori (es. 72 => 1 punto ogni 5°)
+#define SMOOTHING_FACTOR 0.2f   // Fattore smoothing per calibrazione
+#define ADV_EEPROM_ADDR 100     // Indirizzo EEPROM dove parte la tabella ADV
+
+struct AdvCalPoint {
+    float rawX;
+    float rawY;
+    float rawZ;
+    int headingDeg;
     bool calibrated;
 };
 
-static SectorCalibration advCalData[ADV_SECTORS];
-static int advCalibratedCount = 0;
+static AdvCalPoint advTable[ADV_SECTORS];
+static int advPointCount = 0;
 static bool advCalibrationMode = false;
 
-// Helper functions
+// ---------- FUNZIONI UTILITY ----------
+
+// Normalizza 0..359
 static inline int norm360(float deg) {
     int v = (int)round(deg);
     v %= 360;
@@ -46,76 +50,141 @@ static inline int norm360(float deg) {
     return v;
 }
 
-static inline float circDiff(float a, float b) {
-    float d = fmodf((a - b + 540.0f), 360.0f) - 180.0f;
-    return d;
+// Indice settore per una data angolazione
+static inline int sectorIndex(int deg) {
+    return norm360(deg) / (360 / ADV_SECTORS);
 }
 
-static inline int sectorIndex(int degrees) {
-    return (degrees % 360) / 10;
-}
+// ---------- CALIBRAZIONE ----------
 
-// Start calibration
+// Avvia la calibrazione ADV
 static inline void startAdvancedCalibration() {
-    advCalibratedCount = 0;
+    advPointCount = 0;
     advCalibrationMode = true;
     for (int i = 0; i < ADV_SECTORS; i++) {
-        advCalData[i].calibrated = false;
-        advCalData[i].compassX = 0;
-        advCalData[i].compassY = 0;
-        advCalData[i].compassZ = 0;
-        advCalData[i].gyroAngle = i * 10.0f;
+        advTable[i].rawX = 0;
+        advTable[i].rawY = 0;
+        advTable[i].rawZ = 0;
+        advTable[i].headingDeg = i * (360 / ADV_SECTORS);
+        advTable[i].calibrated = false;
     }
     Serial.println("[CAL] Advanced calibration started");
 }
 
-// Nuova versione con 4 parametri
+// Aggiorna la tabella durante la calibrazione (X/Y/Z e heading reale)
 static inline void updateAdvancedCalibration(float gyroDeg, float compassX, float compassY, float compassZ) {
     if (!advCalibrationMode) return;
 
-    gyroDeg = norm360(gyroDeg);
     int idx = sectorIndex((int)gyroDeg);
 
-    if (!advCalData[idx].calibrated) {
-        advCalData[idx].compassX = compassX;
-        advCalData[idx].compassY = compassY;
-        advCalData[idx].compassZ = compassZ;
-        advCalData[idx].calibrated = true;
-        advCalibratedCount++;
+    if (!advTable[idx].calibrated) {
+        advTable[idx].rawX = compassX;
+        advTable[idx].rawY = compassY;
+        advTable[idx].rawZ = compassZ;
+        advTable[idx].headingDeg = (int)gyroDeg;
+        advTable[idx].calibrated = true;
+        advPointCount++;
     } else {
-        advCalData[idx].compassX = SMOOTHING_FACTOR * compassX + 
-                                 (1 - SMOOTHING_FACTOR) * advCalData[idx].compassX;
-        advCalData[idx].compassY = SMOOTHING_FACTOR * compassY + 
-                                 (1 - SMOOTHING_FACTOR) * advCalData[idx].compassY;
-        advCalData[idx].compassZ = SMOOTHING_FACTOR * compassZ + 
-                                 (1 - SMOOTHING_FACTOR) * advCalData[idx].compassZ;
+        advTable[idx].rawX = SMOOTHING_FACTOR * compassX + (1 - SMOOTHING_FACTOR) * advTable[idx].rawX;
+        advTable[idx].rawY = SMOOTHING_FACTOR * compassY + (1 - SMOOTHING_FACTOR) * advTable[idx].rawY;
+        advTable[idx].rawZ = SMOOTHING_FACTOR * compassZ + (1 - SMOOTHING_FACTOR) * advTable[idx].rawZ;
+        advTable[idx].headingDeg = (int)gyroDeg;
     }
 
-    if (advCalibratedCount >= ADV_SECTORS) {
+    if (advPointCount >= ADV_SECTORS) {
         advCalibrationMode = false;
         Serial.println("[CAL] Advanced calibration complete");
     }
 }
 
-// Versione legacy compatibile (2 parametri)
-static inline void updateAdvancedCalibration(float gyroDeg, float compassDeg) {
-    float compassX = cos(compassDeg * M_PI / 180.0f);
-    float compassY = sin(compassDeg * M_PI / 180.0f);
-    updateAdvancedCalibration(gyroDeg, compassX, compassY, 0);
+// Stato calibrazione
+static inline bool isAdvancedCalibrationMode() { return advCalibrationMode; }
+static inline bool isAdvancedCalibrationComplete() { return advPointCount >= ADV_SECTORS; }
+
+// ---------- APPLICAZIONE DELLA CALIBRAZIONE ----------
+
+// Interpolazione tra i 2 punti 3D più vicini
+static inline int applyAdvCalibrationInterp3D(float x, float y, float z) {
+    if (advPointCount < 2) return 0;
+
+    int idx1 = -1, idx2 = -1;
+    float minDist1 = 1e9, minDist2 = 1e9;
+
+    for (int i = 0; i < ADV_SECTORS; i++) {
+        if (!advTable[i].calibrated) continue;
+        float dx = x - advTable[i].rawX;
+        float dy = y - advTable[i].rawY;
+        float dz = z - advTable[i].rawZ;
+        float dist = sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < minDist1) {
+            minDist2 = minDist1; idx2 = idx1;
+            minDist1 = dist;    idx1 = i;
+        } else if (dist < minDist2) {
+            minDist2 = dist; idx2 = i;
+        }
+    }
+    if (idx2 == -1) return advTable[idx1].headingDeg;
+    float w1 = 1.0 / (minDist1 + 1e-6);
+    float w2 = 1.0 / (minDist2 + 1e-6);
+ // Trasforma gli heading in vettori
+    // MEDIA ANGOLARE CIRCOLARE:
+    float h1 = advTable[idx1].headingDeg;
+    float h2 = advTable[idx2].headingDeg;
+    float sumX = w1 * cos(h1 * M_PI / 180.0f) + w2 * cos(h2 * M_PI / 180.0f);
+    float sumY = w1 * sin(h1 * M_PI / 180.0f) + w2 * sin(h2 * M_PI / 180.0f);
+    float hdg = atan2(sumY, sumX) * 180.0f / M_PI;
+    if (hdg < 0) hdg += 360.0f;
+    return (int)round(hdg);
+
+
 }
 
-// Resto del codice rimane invariato...
-static inline int getAdvancedHeading(float compassX, float compassY, float compassZ) {
-    // ... implementazione esistente ...
-}
-
-static inline int getAdvancedHeading(float compassDegRaw) {
+// Versione semplificata per azimuth (solo XY)
+static inline int applyAdvCalibrationInterp2D(float compassDegRaw) {
     float compassX = cos(compassDegRaw * M_PI / 180.0f);
     float compassY = sin(compassDegRaw * M_PI / 180.0f);
-    return getAdvancedHeading(compassX, compassY, 0);
+    float compassZ = 0;
+    return applyAdvCalibrationInterp3D(compassX, compassY, compassZ);
 }
 
-static inline bool isAdvancedCalibrationMode() { return advCalibrationMode; }
-static inline bool isAdvancedCalibrationComplete() { return advCalibratedCount >= ADV_SECTORS; }
+// ---------- SALVATAGGIO/CARICAMENTO EEPROM ----------
+
+static inline void saveAdvCalibrationToEEPROM() {
+    int addr = ADV_EEPROM_ADDR;
+    for (int i = 0; i < ADV_SECTORS; i++) {
+        EEPROM.put(addr, advTable[i].rawX);      addr += sizeof(float);
+        EEPROM.put(addr, advTable[i].rawY);      addr += sizeof(float);
+        EEPROM.put(addr, advTable[i].rawZ);      addr += sizeof(float);
+        EEPROM.put(addr, advTable[i].headingDeg);addr += sizeof(int);
+        EEPROM.put(addr, advTable[i].calibrated);addr += sizeof(bool);
+    }
+    EEPROM.commit();
+    Serial.println("[ADV] Tabella ADV salvata su EEPROM.");
+}
+
+static inline void loadAdvCalibrationFromEEPROM() {
+    int addr = ADV_EEPROM_ADDR;
+    advPointCount = 0;
+    for (int i = 0; i < ADV_SECTORS; i++) {
+        EEPROM.get(addr, advTable[i].rawX);      addr += sizeof(float);
+        EEPROM.get(addr, advTable[i].rawY);      addr += sizeof(float);
+        EEPROM.get(addr, advTable[i].rawZ);      addr += sizeof(float);
+        EEPROM.get(addr, advTable[i].headingDeg);addr += sizeof(int);
+        EEPROM.get(addr, advTable[i].calibrated);addr += sizeof(bool);
+        if (advTable[i].calibrated) advPointCount++;
+    }
+    Serial.print("[ADV] Tabella ADV caricata da EEPROM. Punti validi: ");
+    Serial.println(advPointCount);
+}
+
+// ---------- DEBUG ----------
+
+static inline void printAdvCalibrationTable() {
+    for (int i = 0; i < ADV_SECTORS; i++) {
+        if (!advTable[i].calibrated) continue;
+        Serial.printf("#%02d: X=%.2f Y=%.2f Z=%.2f → heading=%d\n",
+            i, advTable[i].rawX, advTable[i].rawY, advTable[i].rawZ, advTable[i].headingDeg);
+    }
+}
 
 #endif // ADV_CALIBRATION_H
