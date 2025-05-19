@@ -238,10 +238,11 @@ void handleClientUploadChunk(WebServer &server) {
         otaReceived = 0;
     }
     else if (upload.status == UPLOAD_FILE_WRITE) {
-        String cmd = "OTA_DATA:" + String((char*)upload.buf, upload.currentSize);
-        webSocket.broadcastTXT(cmd);
-        otaReceived += upload.currentSize;
-    }
+    // Invia direttamente via UDP al client OTA
+    forwardOtaToClient(upload.buf, upload.currentSize);
+    otaReceived += upload.currentSize;
+}
+
     else if (upload.status == UPLOAD_FILE_END) {
         String cmd = "OTA_END:" + String(upload.totalSize);
         webSocket.broadcastTXT(cmd);
