@@ -34,6 +34,7 @@
 // ‼️ forward-declarations ‼️
 void handleAdvancedCalibrationCommand(const String& cmd);   // arriverà più avanti
 int  applyAdvCalibration(float x, float y);                 // è già definita in fondo
+#define FW_VERSION "1.2.1-CLIENT"
 
 
 // gg### VARIABILI GLOBALI CONDIVISE ###
@@ -331,7 +332,14 @@ void handleAdvancedCalibrationCommand(const String& cmd) {
 void handleCommandClient(String command) {
   handleAdvancedCalibrationCommand(command);
     debugLog("DEBUG(UDP): Comando ricevuto -> " + command);
-    
+    if (command == "GET_FW_VERSION") {
+    String reply = String("FW_VERSION_CLIENT:") + FW_VERSION;
+    udp.beginPacket(serverIP, serverPort); // o udp.remoteIP(), udp.remotePort()
+    udp.write((const uint8_t*)reply.c_str(), reply.length());
+    udp.endPacket();
+    return; 
+}
+
     if (command.startsWith("CMD:")) {
         if (externalBearingEnabled) {
             int newBearing = command.substring(4).toInt();

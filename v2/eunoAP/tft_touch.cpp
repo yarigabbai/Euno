@@ -13,6 +13,9 @@
 String infoLabels[6] = { "Heading", "Cmd", "Err", "GPS", "Spd", "" };
 String headingLabel = "H.Compass";  // label attuale per il riquadro 0
 extern String headingLabel;         // se serve visibile in più file
+extern String lastClientFwVersion;
+extern const char* FW_VERSION;
+extern unsigned long lastFwRequestTime;
 
 // -------------------------------------
 String truncateString(String s, int maxChars) {
@@ -100,6 +103,33 @@ tft.drawString(infoLabels[index], x + 2, y + 2);
     tft.drawString("autopilot", x + boxW/2, y + boxH/2 + 10);
   }
 }
+void showFirmwareVersion(TFT_eSPI &tft) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.setTextSize(2);
+    int y = tft.height()/2 - 40;
+    tft.setCursor(20, y);
+    tft.println("AP Firmware:");
+    y += 30;
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(3);
+    tft.setCursor(20, y);
+    tft.println(FW_VERSION);
+
+    y += 50;
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(20, y);
+    tft.println("Client Firmware:");
+    y += 30;
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(3);
+    tft.setCursor(20, y);
+    tft.println(lastClientFwVersion);
+
+    delay(2000);
+}
+
 void updateDataBoxColor(TFT_eSPI &tft, int index, String value, uint16_t color) {
   int boxWidth = 50;
   int x = 5 + index * boxWidth;
@@ -269,7 +299,13 @@ void updateMainButtonONOFF(TFT_eSPI &tft, bool isOn) {
   tft.drawString(label, x + btnW / 2, y + btnH / 2);
 }
 
-
+void requestClientFirmwareVersion() {
+    udp.beginPacket(clientIP, clientPort);
+    udp.print("GET_FW_VERSION");
+    udp.endPacket();
+    lastClientFwVersion = "Attendi...";
+    lastFwRequestTime = millis();
+}
 
 void checkTouch(
   TFT_eSPI &tft,
@@ -453,6 +489,15 @@ else                     menuMode = 0;
   }
 }
 
+
   }
+  if (menuMode == 3 && pendingAction == "FIRMWARE") {
+    requestClientFirmwareVersion();  // Invia la richiesta
+    delay(400);                      // Attendi (almeno 400-600 ms)
+    showFirmwareVersion(tft);        // Mostra entrambe le versioni
+    menuMode = 0;
+    drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
+}
+
 }
 

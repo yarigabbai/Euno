@@ -14,6 +14,7 @@
   https://creativecommons.org/licenses/by-nc/4.0/legalcode
 */
 
+const char* FW_VERSION = "1.2.1-AP";
 
 // Includi prima FS con namespace esplicito
 #include "FS.h"
@@ -41,10 +42,12 @@ using fs::FS;
 #include "nmea_parser.h"
 #include "websocket_ota.h"
 #include "index_html.h"
+unsigned long lastFwRequestTime = 0;
 
 #define EUNO_IS_AP
 #include "euno_debugAP.h"
 int V_min, V_max, E_min, E_max, E_tol, T_risposta, T_pause;
+String lastClientFwVersion = "Attendi...";
 
 
 
@@ -83,6 +86,7 @@ void loadParamsFromEEPROM() {
   }
   debugLog("DEBUG(AP): Parametri caricati da EEPROM.");
 }
+
 
 // Variabili di stato
 bool motorControllerState = false;
@@ -213,6 +217,11 @@ else if (msg == "MOTOR:OFF") {
   drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
   drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
 }
+  if (msg.startsWith("FW_VERSION_CLIENT:")) {
+      lastClientFwVersion = msg.substring(strlen("FW_VERSION_CLIENT:"));
+      // Se vuoi aggiornare il display appena arriva la versione, puoi ridisegnare qui!
+      return; // esci subito, non processare altro
+  }
 
       if (msg.startsWith("LOG:")) {
   Serial.println("AP ha ricevuto log dal client:");
