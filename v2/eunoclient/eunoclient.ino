@@ -336,6 +336,7 @@ void handleCommandClient(String command) {
     String reply = String("FW_VERSION_CLIENT:") + FW_VERSION;
     udp.beginPacket(serverIP, serverPort); // o udp.remoteIP(), udp.remotePort()
     udp.write((const uint8_t*)reply.c_str(), reply.length());
+        Serial.println("Client: Inviata risposta firmware al server!");
     udp.endPacket();
     return; 
 }

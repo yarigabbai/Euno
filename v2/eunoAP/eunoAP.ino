@@ -219,6 +219,8 @@ else if (msg == "MOTOR:OFF") {
 }
   if (msg.startsWith("FW_VERSION_CLIENT:")) {
       lastClientFwVersion = msg.substring(strlen("FW_VERSION_CLIENT:"));
+       Serial.print("AP: Ricevuta FW Version dal client: ");
+    Serial.println(lastClientFwVersion);
       // Se vuoi aggiornare il display appena arriva la versione, puoi ridisegnare qui!
       return; // esci subito, non processare altro
   }

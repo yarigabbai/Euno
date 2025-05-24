@@ -16,6 +16,7 @@ extern String headingLabel;         // se serve visibile in più file
 extern String lastClientFwVersion;
 extern const char* FW_VERSION;
 extern unsigned long lastFwRequestTime;
+extern char incomingPacket[255];
 
 // -------------------------------------
 String truncateString(String s, int maxChars) {
@@ -491,11 +492,34 @@ else                     menuMode = 0;
 
 
   }
-  if (menuMode == 3 && pendingAction == "FIRMWARE") {
-    requestClientFirmwareVersion();  // Invia la richiesta
-    delay(400);                      // Attendi (almeno 400-600 ms)
-    showFirmwareVersion(tft);        // Mostra entrambe le versioni
+if (menuMode == 3 && pendingAction == "FIRMWARE") {
+    requestClientFirmwareVersion();      // Invia richiesta
+    showFirmwareVersion(tft);            // Mostra subito "Attendi..."
+
+    // Attendi la risposta, processando i pacchetti UDP!
+    unsigned long startWait = millis();
+    while (lastClientFwVersion == "Attendi..." && millis() - startWait < 1500) {
+        // Qui processa i pacchetti UDP!
+        int packetSize = udp.parsePacket();
+        if(packetSize) {
+            clientIP = udp.remoteIP();
+            clientPort = udp.remotePort();
+            int len = udp.read(incomingPacket, 255);
+            if(len > 0) {
+                incomingPacket[len] = 0;
+                String msg = String(incomingPacket);
+                if (msg.startsWith("FW_VERSION_CLIENT:")) {
+                    lastClientFwVersion = msg.substring(strlen("FW_VERSION_CLIENT:"));
+                }
+            }
+        }
+        delay(10); // breva pausa per non bloccare tutto
+    }
+
+    showFirmwareVersion(tft); // Ora mostra la versione vera
+    delay(2000);
     menuMode = 0;
+    drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
     drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
 }
 
