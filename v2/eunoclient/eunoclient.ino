@@ -328,6 +328,13 @@ void handleAdvancedCalibrationCommand(const String& cmd) {
         advCalibrationMode = false;
     }
 }
+void resetAllEEPROM() {
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    EEPROM.write(i, 0xFF); // o 0x00
+  }
+  EEPROM.commit();
+  debugLog("EEPROM azzerata!");
+}
 
 void handleCommandClient(String command) {
   handleAdvancedCalibrationCommand(command);

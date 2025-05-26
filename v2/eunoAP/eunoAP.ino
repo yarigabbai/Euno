@@ -86,6 +86,13 @@ void loadParamsFromEEPROM() {
   }
   debugLog("DEBUG(AP): Parametri caricati da EEPROM.");
 }
+void resetAllEEPROM() {
+  for (int i = 0; i < EEPROM_SIZE; i++) {
+    EEPROM.write(i, 0xFF);  // o 0x00, come preferisci
+  }
+  EEPROM.commit();
+  debugLog("EEPROM azzerata!");
+}
 
 
 // Variabili di stato

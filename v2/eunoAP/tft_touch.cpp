@@ -22,7 +22,7 @@ extern char incomingPacket[255];
 String truncateString(String s, int maxChars) {
   return s.length() > maxChars ? s.substring(0, maxChars - 3) + "..." : s;
 }
-
+void resetAllEEPROM();
 // -------------------------------------
 void drawStaticLayout(TFT_eSPI &tft, bool motorControllerState, bool externalBearingEnabled)
  {
@@ -490,6 +490,14 @@ else                     menuMode = 0;
   }
 }
 
+if (pendingAction == "RESET") {
+    resetAllEEPROM(); // reset EEPROM AP
+    udp.beginPacket(clientIP, clientPort);
+    udp.print("RESET_EEPROM");
+    udp.endPacket();
+    debugLog("Inviato comando RESET_EEPROM al client!");
+}
+
 
   }
 if (menuMode == 3 && pendingAction == "FIRMWARE") {
@@ -521,6 +529,19 @@ if (menuMode == 3 && pendingAction == "FIRMWARE") {
     menuMode = 0;
     drawStaticLayout(tft, motorControllerState, externalBearingEnabled);
     drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
+}
+if (menuMode == 3 && pendingAction == "RESET") {
+    resetAllEEPROM();
+    // Eventuale messaggio a schermo
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(40, tft.height()/2);
+    tft.println("EEPROM resettata!");
+    delay(1000);
+    menuMode = 0;
+    drawMenu(tft, menuMode, params, currentParamIndex, motorControllerState);
+    return;
 }
 
 }
