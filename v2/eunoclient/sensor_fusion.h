@@ -176,21 +176,21 @@ inline void updateSmoothedSpeed() {
 inline void updateSensorFusion() {
   updateSmoothedSpeed();
 
-  if (!sensorFusionCalibrated) {
-    calibrateTilt();
-    calibrateGyro();
-    headingGyro = getCorrectedHeading();
-    debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
+  // if (!sensorFusionCalibrated) {
+  //   calibrateTilt();
+  //   calibrateGyro();
+  //   headingGyro = getCorrectedHeading();
+  //   debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
 
-    prevMicros = micros();
-    lastCorrection = millis();
+  //   prevMicros = micros();
+  //   lastCorrection = millis();
 
-    sensorFusionCalibrated = true;
-    gyroInitialized        = true;
-    for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = headingGyro;
-    gpsHeadingIndex = 0;
-    debugLog("DEBUG: Sensor Fusion calibration completed.");
-  }
+  //   sensorFusionCalibrated = true;
+  //   gyroInitialized        = true;
+  //   for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = headingGyro;
+  //   gpsHeadingIndex = 0;
+  //   debugLog("DEBUG: Sensor Fusion calibration completed.");
+  // }
 
   unsigned long nowMicros = micros();
   float dt = (nowMicros - prevMicros) / 1000000.0;
