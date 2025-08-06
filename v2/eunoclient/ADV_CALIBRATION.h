@@ -71,6 +71,23 @@ static inline void startAdvancedCalibration() {
     Serial.println("[CAL] Advanced calibration started");
 }
 
+// **RESETTA ANCHE LA EEPROM** della tabella ADV
+static inline void resetAdvCalibrationEEPROM() {
+    int addr = ADV_EEPROM_ADDR;
+    for (int i = 0; i < ADV_SECTORS; i++) {
+        float zeroF = 0.0f;
+        int zeroI = 0;
+        bool zeroB = false;
+        EEPROM.put(addr, zeroF);      addr += sizeof(float); // rawX
+        EEPROM.put(addr, zeroF);      addr += sizeof(float); // rawY
+        EEPROM.put(addr, zeroF);      addr += sizeof(float); // rawZ
+        EEPROM.put(addr, zeroI);      addr += sizeof(int);   // headingDeg
+        EEPROM.put(addr, zeroB);      addr += sizeof(bool);  // calibrated
+    }
+    EEPROM.commit();
+    Serial.println("[CAL] ADV Calibration EEPROM cleared");
+}
+
 // Aggiorna la tabella durante la calibrazione (X/Y/Z e heading reale)
 static inline void updateAdvancedCalibration(float gyroDeg, float compassX, float compassY, float compassZ) {
     if (!advCalibrationMode) return;
@@ -84,6 +101,11 @@ static inline void updateAdvancedCalibration(float gyroDeg, float compassX, floa
         advTable[idx].headingDeg = (int)gyroDeg;
         advTable[idx].calibrated = true;
         advPointCount++;
+        // Debug print per vedere avanzamento
+        Serial.print("[ADV] Set settore: "); Serial.print(idx);
+        Serial.print(" heading="); Serial.print((int)gyroDeg);
+        Serial.print("° Punti raccolti: "); Serial.print(advPointCount);
+        Serial.print("/"); Serial.println(ADV_SECTORS);
     } else {
         advTable[idx].rawX = SMOOTHING_FACTOR * compassX + (1 - SMOOTHING_FACTOR) * advTable[idx].rawX;
         advTable[idx].rawY = SMOOTHING_FACTOR * compassY + (1 - SMOOTHING_FACTOR) * advTable[idx].rawY;
@@ -126,7 +148,6 @@ static inline int applyAdvCalibrationInterp3D(float x, float y, float z) {
     if (idx2 == -1) return advTable[idx1].headingDeg;
     float w1 = 1.0 / (minDist1 + 1e-6);
     float w2 = 1.0 / (minDist2 + 1e-6);
- // Trasforma gli heading in vettori
     // MEDIA ANGOLARE CIRCOLARE:
     float h1 = advTable[idx1].headingDeg;
     float h2 = advTable[idx2].headingDeg;
@@ -135,8 +156,6 @@ static inline int applyAdvCalibrationInterp3D(float x, float y, float z) {
     float hdg = atan2(sumY, sumX) * 180.0f / M_PI;
     if (hdg < 0) hdg += 360.0f;
     return (int)round(hdg);
-
-
 }
 
 // Versione semplificata per azimuth (solo XY)

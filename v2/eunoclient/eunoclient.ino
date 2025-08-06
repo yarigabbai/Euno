@@ -693,13 +693,20 @@ void loop() {
 if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
   lastSensorUpdate = currentMillis;
  if (isAdvancedCalibrationMode()) {
-  compass.read();
-updateAdvancedCalibration(headingGyro, compass.getX(), compass.getY(), compass.getZ());
+    compass.read();
+    updateAdvancedCalibration(headingGyro, compass.getX(), compass.getY(), compass.getZ());
 
-            if (isAdvancedCalibrationComplete()) {
-    saveAdvCalibrationToEEPROM();
-    debugLog("Calibrazione completata. ADV salvata su EEPROM.");
-}
+    if (isAdvancedCalibrationComplete()) {
+        saveAdvCalibrationToEEPROM();
+        debugLog("Calibrazione completata. ADV salvata su EEPROM.");
+
+        // AGGIUNGI QUESTO BLOCCO ↓↓↓↓↓
+        udp.beginPacket(serverIP, serverPort);
+        udp.print("EXPCAL_DONE");
+        udp.endPacket();
+        debugLog("Risposta EXPCAL_DONE inviata all’AP");
+    }
+
         }
   // 🔁 Leggi sensori e aggiorna heading corrente (ma NON inviare nulla)
 
