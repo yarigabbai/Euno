@@ -18,7 +18,9 @@
 
 #include <Wire.h>
 #include <EEPROM.h>
-#include <QMC5883LCompass.h>
+#include <Adafruit_ICM20948.h>
+#include <Adafruit_Sensor.h>
+
 #include <TinyGPSPlus.h>
 #include <WiFiUdp.h>
 #include <WiFi.h>
@@ -35,7 +37,9 @@
 void handleAdvancedCalibrationCommand(const String& cmd);   // arriverà più avanti
 int  applyAdvCalibration(float x, float y);                 // è già definita in fondo
 #define FW_VERSION "1.2.1-CLIENT"
+#include "icm_compass.h"
 
+  
 
 // gg### VARIABILI GLOBALI CONDIVISE ###
 // ###########################################
@@ -177,7 +181,7 @@ unsigned long calibrationStartTime = 0;
 float minX = 32767, minY = 32767, minZ = 32767;
 float maxX = -32768, maxY = -32768, maxZ = -32768;
 int16_t compassOffsetX = 0, compassOffsetY = 0, compassOffsetZ = 0;
-QMC5883LCompass compass;
+ICMCompass compass;
 
 int headingCommand = 0;
 int currentHeading = 0;
@@ -663,13 +667,14 @@ Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
 T_risposta = readParameterFromEEPROM(26);
 
     // Inizializza bussola
-    Wire.begin(8, 9);
-    compass.init();
-    compass.read(); 
-    Wire.beginTransmission(0x0D); // indirizzo QMC5883L
-Wire.write(0x09);             // registro control
-Wire.write(0b00011101);       // Continuous, 200 Hz, 2 G, OSR 512
-Wire.endTransmission();
+ Wire.begin(8, 9);
+ Wire.setClock(400000); // I2C Fast Mode
+if (!compass.begin(0x68, &Wire)) {
+  debugLog("ICM-20948 non trovato! Controlla il wiring.");
+  while (true) delay(10);
+}
+compass.read();  // prima lettura per inizializzare valori
+
 
     // Inizializza GPS
     Serial2.begin(9600, SERIAL_8N1, 16, 17);
@@ -688,6 +693,7 @@ Wire.endTransmission();
 }
 
 void loop() {
+  
     unsigned long currentMillis = millis();
     // Lettura sensori ogni 100 ms
 if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {

@@ -25,6 +25,8 @@
 #include <math.h>
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
+#include "icm_compass.h"  // serve per conoscere la classe
+extern ICMCompass compass;
 
 // ======================================================================
 // DICHIARAZIONI DI VARIABILI ESTERNE (definite nello sketch .ino)
@@ -79,32 +81,25 @@ inline float angleDifference(float a, float b) {
 
 // Legge i valori dell'accelerometro (e.g. su MPU6050 all’indirizzo 0x68)
 inline void readAccelerometer(float &ax, float &ay, float &az) {
-  Wire.beginTransmission(0x68);
-  Wire.write(0x3B);
-  Wire.endTransmission(false);
-  Wire.requestFrom(0x68, 6);
-  if (Wire.available() >= 6) {
-    int16_t rawX = (Wire.read() << 8) | Wire.read();
-    int16_t rawY = (Wire.read() << 8) | Wire.read();
-    int16_t rawZ = (Wire.read() << 8) | Wire.read();
-    ax = (float)rawX / 16384.0;
-    ay = (float)rawY / 16384.0;
-    az = (float)rawZ / 16384.0;
-  }
+  sensors_event_t accel;
+sensors_event_t acc = compass.getAccelEvent();
+accel.acceleration.x = acc.acceleration.x;
+accel.acceleration.y = acc.acceleration.y;
+accel.acceleration.z = acc.acceleration.z;
+
 }
 
 // Legge il valore del giroscopio asse Z (e.g. su MPU6050)
 inline float readGyroZ() {
-  Wire.beginTransmission(0x68);
-  Wire.write(0x47);
-  Wire.endTransmission(false);
-  Wire.requestFrom(0x68, 2);
-  if (Wire.available() >= 2) {
-    int16_t rawZ = (Wire.read() << 8) | Wire.read();
-    return (float)rawZ;
-  }
-  return 0.0;
+  sensors_event_t gyro;
+ sensors_event_t g = compass.getGyroEvent();
+gyro.gyro.x = g.gyro.x;
+gyro.gyro.y = g.gyro.y;
+gyro.gyro.z = g.gyro.z;
+
+  return gyro.gyro.z;
 }
+
 
 // Calibra inclinazione (pitch/roll) con l'accelerometro
 inline void calibrateTilt() {

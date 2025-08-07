@@ -22,7 +22,7 @@
 #ifndef CALIBRATION_H
 #define CALIBRATION_H
 
-#include <QMC5883LCompass.h>
+#include "icm_compass.h"
 #include <EEPROM.h>
 #include <math.h>
 unsigned long lastCalibrationLogTime = 0;
@@ -33,7 +33,7 @@ extern float minX, minY, minZ;
 extern float maxX, maxY, maxZ;
 #include <stdint.h>
 extern int16_t compassOffsetX, compassOffsetY, compassOffsetZ;
-extern QMC5883LCompass compass;
+extern ICMCompass compass;
 extern bool motorControllerState; 
 extern int headingOffset;
 // Dichiarazioni delle funzioni
