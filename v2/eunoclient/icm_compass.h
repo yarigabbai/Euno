@@ -17,18 +17,15 @@ private:
 public:
 sensors_event_t getAccelEvent() {
   sensors_event_t accel;
-  icm.getEvent(NULL, NULL, NULL, NULL);  // 🔁 richiama i sensori aggiornati
   icm.getAccelerometerSensor()->getEvent(&accel);
   return accel;
 }
 
 sensors_event_t getGyroEvent() {
   sensors_event_t gyro;
-  icm.getEvent(NULL, NULL, NULL, NULL);  // 🔁 richiama i sensori aggiornati
   icm.getGyroSensor()->getEvent(&gyro);
   return gyro;
 }
-
 
   bool begin(uint8_t addr = 0x68, TwoWire *wire = &Wire) {
     wire->begin(8, 9); // SDA=8, SCL=9 per ESP32-S3
