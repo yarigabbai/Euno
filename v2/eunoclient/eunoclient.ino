@@ -666,14 +666,21 @@ Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
     T_pause = readParameterFromEEPROM(24);
 T_risposta = readParameterFromEEPROM(26);
 
-    // Inizializza bussola
- Wire.begin(8, 9);
- Wire.setClock(400000); // I2C Fast Mode
-if (!compass.begin(0x68, &Wire)) {
-  debugLog("ICM-20948 non trovato! Controlla il wiring.");
+// Inizializza bussola
+// I2C: fallo SOLO qui (niente begin/setClock nella classe)
+Wire.begin(8, 9);
+Wire.setClock(400000);
+
+// prova 0x68 poi 0x69 in automatico
+if (!compass.beginAuto(&Wire)) {
+  debugLog("ICM-20948 non trovato su 0x68/0x69! Controlla wiring.");
   while (true) delay(10);
 }
-compass.read();  // prima lettura per inizializzare valori
+Serial.printf("ICM-20948 inizializzato su indirizzo 0x%02X\n", compass.getAddress());
+
+// prima lettura
+compass.read();
+
 
 
     // Inizializza GPS

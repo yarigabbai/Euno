@@ -14,8 +14,6 @@
   https://creativecommons.org/licenses/by-nc/4.0/legalcode
 */
 
-
-
 #ifndef SENSOR_FUSION_H
 #define SENSOR_FUSION_H
 
@@ -26,15 +24,16 @@
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
 #include "icm_compass.h"  // serve per conoscere la classe
+
 extern ICMCompass compass;
 
 // ======================================================================
 // DICHIARAZIONI DI VARIABILI ESTERNE (definite nello sketch .ino)
 // ======================================================================
 extern TinyGPSPlus gps;       // GPS gestito esternamente
-extern float smoothedSpeed;    // Velocità GPS filtrata (dichiarata e inizializzata nel .ino)
-extern int headingOffset;      // Offset (software) bussola, se serve
-int getCorrectedHeading();     // Funzione definita nel .ino per leggere la bussola corretta
+extern float smoothedSpeed;   // Velocità GPS filtrata (dichiarata e inizializzata nel .ino)
+extern int headingOffset;     // Offset (software) bussola, se serve
+int getCorrectedHeading();    // Funzione definita nel .ino per leggere la bussola corretta
 
 // ======================================================================
 // VARIABILI GLOBALI DI SENSOR FUSION
@@ -46,12 +45,12 @@ bool expInitialized = false;           // Per l’heading sperimentale
 
 float accPitchOffset = 0;     // Offset accelerometro per tilt pitch
 float accRollOffset  = 0;     // Offset accelerometro per tilt roll
-float gyroOffsetZ    = 0;     // Offset di zero del giroscopio (asse Z)
+float gyroOffsetZ    = 0;     // Offset di zero del giroscopio (ASSE Z) **in rad/s**
 
-// Heading principali:
+// Heading principali (in gradi):
 float headingGyro = 0.0;         // Il valore “fuso” da IMU + GPS
 float headingExperimental = 0.0; // Filtro sperimentale aggiuntivo
-float getAdvancedHeading();  // nuovo algoritmo “ADV”
+float getAdvancedHeading();      // futuro algoritmo “ADV”
 
 // Buffer per correzione media GPS
 float gpsHeadingBuffer[5];
@@ -64,42 +63,41 @@ unsigned long lastCorrection = 0;
 // ======================================================================
 // COSTANTI E PARAMETRI DI CALIBRAZIONE
 // ======================================================================
-const float alphaSpeed            = 0.2;   // coeff. per la media esponenziale della velocità
-const float gyroCalibrationFactor = 0.5;   // fattore di calibrazione giroscopio
-const float correctionFactor      = 0.1;   // fattore di correzione verso heading GPS
+const float alphaSpeed            = 0.2;    // coeff. per la media esponenziale della velocità
+const float gyroCalibrationFactor = 0.5;    // fattore opzionale di taratura scala gyro (lascia 0.5 se ti trovi bene)
+const float correctionFactor      = 0.1;    // fattore di correzione verso heading GPS
 const unsigned long CORRECTION_INTERVAL = 10000; // ms fra correzioni verso GPS
 
 // ======================================================================
 // FUNZIONI DI SUPPORTO
 // ======================================================================
 
-// Ritorna la differenza angolare in range -180°..+180°
+// Differenza angolare in range -180°..+180°
 inline float angleDifference(float a, float b) {
-  float d = fmod((a - b + 540.0), 360.0) - 180.0;
+  float d = fmod((a - b + 540.0f), 360.0f) - 180.0f;
   return d;
 }
 
-// Legge i valori dell'accelerometro (e.g. su MPU6050 all’indirizzo 0x68)
+// ACC: riempi davvero ax, ay, az (in m/s^2)
 inline void readAccelerometer(float &ax, float &ay, float &az) {
-  sensors_event_t accel;
-sensors_event_t acc = compass.getAccelEvent();
-accel.acceleration.x = acc.acceleration.x;
-accel.acceleration.y = acc.acceleration.y;
-accel.acceleration.z = acc.acceleration.z;
-
+  sensors_event_t acc;
+  if (compass.getAccelEvent(acc)) {
+    ax = acc.acceleration.x;
+    ay = acc.acceleration.y;
+    az = acc.acceleration.z;
+  } else {
+    ax = ay = az = NAN;
+  }
 }
 
-// Legge il valore del giroscopio asse Z (e.g. su MPU6050)
+// GYRO Z: ritorna **rad/s** (unità SI dalla Adafruit Unified Sensor)
 inline float readGyroZ() {
-  sensors_event_t gyro;
- sensors_event_t g = compass.getGyroEvent();
-gyro.gyro.x = g.gyro.x;
-gyro.gyro.y = g.gyro.y;
-gyro.gyro.z = g.gyro.z;
-
-  return gyro.gyro.z;
+  sensors_event_t g;
+  if (compass.getGyroEvent(g)) {
+    return g.gyro.z; // rad/s
+  }
+  return NAN;
 }
-
 
 // Calibra inclinazione (pitch/roll) con l'accelerometro
 inline void calibrateTilt() {
@@ -110,7 +108,7 @@ inline void calibrateTilt() {
   for (int i = 0; i < samples; i++) {
     float ax, ay, az;
     readAccelerometer(ax, ay, az);
-    pitchSum += atan2(-ax, sqrt(ay * ay + az * az));
+    pitchSum += atan2(-ax, sqrtf(ay * ay + az * az));
     rollSum  += atan2(ay, az);
     delay(5);
   }
@@ -119,18 +117,20 @@ inline void calibrateTilt() {
   debugLog("DEBUG: Accelerometer tilt calibrated.");
 }
 
-// Calibra lo zero del giroscopio sull’asse Z
+// Calibra lo zero del giroscopio sull’asse Z (**rad/s**)
 inline void calibrateGyro() {
   debugLog("DEBUG: Calibrating gyro...");
   float sum = 0;
   const int samples = 500;
   for (int i = 0; i < samples; i++) {
-    sum += readGyroZ();
+    float gz = readGyroZ();
+    if (!isnan(gz)) sum += gz;
     delay(2);
   }
-  gyroOffsetZ = sum / samples;
-  debugLog("DEBUG: Gyro offset Z: " + String(gyroOffsetZ));
+  gyroOffsetZ = sum / samples;  // rad/s
+  debugLog("DEBUG: Gyro offset Z (rad/s): " + String(gyroOffsetZ, 6));
 }
+
 inline void performSensorFusionCalibration() {
   debugLog("DEBUG: Calibrating accelerometer tilt...");
   calibrateTilt();
@@ -138,7 +138,7 @@ inline void performSensorFusionCalibration() {
   debugLog("DEBUG: Calibrating gyro...");
   calibrateGyro();
 
-  headingGyro = getCorrectedHeading();
+  headingGyro = getCorrectedHeading();   // gradi
   debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
 
   prevMicros = micros();
@@ -157,11 +157,8 @@ inline void performSensorFusionCalibration() {
 inline void updateSmoothedSpeed() {
   if (gps.speed.isValid()) {
     float nuova = gps.speed.knots();
-    if (smoothedSpeed == 0.0) {
-      smoothedSpeed = nuova;
-    } else {
-      smoothedSpeed = alphaSpeed * nuova + (1.0 - alphaSpeed) * smoothedSpeed;
-    }
+    if (smoothedSpeed == 0.0f) smoothedSpeed = nuova;
+    else smoothedSpeed = alphaSpeed * nuova + (1.0f - alphaSpeed) * smoothedSpeed;
   }
 }
 
@@ -171,32 +168,22 @@ inline void updateSmoothedSpeed() {
 inline void updateSensorFusion() {
   updateSmoothedSpeed();
 
-  // if (!sensorFusionCalibrated) {
-  //   calibrateTilt();
-  //   calibrateGyro();
-  //   headingGyro = getCorrectedHeading();
-  //   debugLog("DEBUG: headingGyro init from compass: " + String(headingGyro));
-
-  //   prevMicros = micros();
-  //   lastCorrection = millis();
-
-  //   sensorFusionCalibrated = true;
-  //   gyroInitialized        = true;
-  //   for (int i = 0; i < 5; i++) gpsHeadingBuffer[i] = headingGyro;
-  //   gpsHeadingIndex = 0;
-  //   debugLog("DEBUG: Sensor Fusion calibration completed.");
-  // }
-
   unsigned long nowMicros = micros();
-  float dt = (nowMicros - prevMicros) / 1000000.0;
+  float dt = (nowMicros - prevMicros) / 1000000.0f;
   prevMicros = nowMicros;
   if (dt <= 0) return;
 
-  float rawGz = readGyroZ();
-  float rateZ = -((rawGz - gyroOffsetZ) / 65.5) * gyroCalibrationFactor;
-  headingGyro += rateZ * dt;
-  headingGyro = fmod(headingGyro + 360.0, 360.0);
+  // ---- INTEGRAZIONE GYRO (ICM20948 → rad/s) ----
+  float rawGz = readGyroZ();               // rad/s
+  if (!isnan(rawGz)) {
+    float gz_rad = (rawGz - gyroOffsetZ);  // rad/s centrato
+    // Converti in deg/s e applica eventuale taratura di scala
+    float rateZ_deg = (gz_rad * 180.0f / M_PI) * gyroCalibrationFactor; // deg/s
+    headingGyro += rateZ_deg * dt;         // gradi
+    headingGyro = fmodf(headingGyro + 360.0f, 360.0f);
+  }
 
+  // ---- CORREZIONE LENTA VERSO GPS (se > 2 kn e valido) ----
   if (gps.speed.isValid() && gps.speed.knots() > 2 && gps.course.isValid()) {
     float currentGPSHeading = gps.course.deg();
     if (!initialGPSOffsetSet) {
@@ -213,11 +200,11 @@ inline void updateSensorFusion() {
     if (millis() - lastCorrection >= CORRECTION_INTERVAL) {
       float sumGPS = 0;
       for (int i = 0; i < 5; i++) sumGPS += gpsHeadingBuffer[i];
-      float avgGPS = sumGPS / 5.0;
+      float avgGPS = sumGPS / 5.0f;
       float diff = angleDifference(avgGPS, headingGyro);
-      if (fabs(diff) > 1.0) {
+      if (fabsf(diff) > 1.0f) {
         headingGyro += correctionFactor * diff;
-        headingGyro = fmod(headingGyro + 360.0, 360.0);
+        headingGyro = fmodf(headingGyro + 360.0f, 360.0f);
       }
       lastCorrection = millis();
     }
@@ -225,7 +212,7 @@ inline void updateSensorFusion() {
 }
 
 inline float getFusedHeading() {
-  return headingGyro;
+  return headingGyro; // gradi
 }
 
 // ======================================================================
@@ -242,14 +229,13 @@ inline void updateExperimental(float input) {
     return;
   }
   float diff = angleDifference(input, headingExperimental);
-  float alpha = (fabs(diff) > thresh) ? alphaFast : alphaSlow;
+  float alpha = (fabsf(diff) > thresh) ? alphaFast : alphaSlow;
   headingExperimental += alpha * diff;
-  headingExperimental = fmod(headingExperimental + 360.0f, 360.0f);
+  headingExperimental = fmodf(headingExperimental + 360.0f, 360.0f);
 }
 
 inline float getExperimentalHeading() {
   return headingExperimental;
 }
-
 
 #endif // SENSOR_FUSION_H
