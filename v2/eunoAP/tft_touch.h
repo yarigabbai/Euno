@@ -51,7 +51,7 @@ static const char* secondButtonActions[NUM_SECOND_BUTTONS] = { "ACTION:CAL", "AC
 static const uint16_t buttonColorsSecond[NUM_SECOND_BUTTONS] = { 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60, 0xFE60 };
 // Menu terziario
 #define NUM_THIRD_BUTTONS 6
-static const char* thirdButtonLabels[NUM_THIRD_BUTTONS]  = { "Firmware", "AdvCal", "Foo", "ExCal", "Baz", "MENU" };
+static const char* thirdButtonLabels[NUM_THIRD_BUTTONS]  = { "Firmware", "GYROCAL", "Foo", "ADVCAL", "Baz", "MENU" };
 static const char* thirdButtonActions[NUM_THIRD_BUTTONS] = { "FIRMWARE", "ACTION:CAL-GYRO", "ACTION:FOO", "ACTION:EXPCAL", "ACTION:BAZ", "MENU:SWITCH" };
 
 static const uint16_t buttonColorsThird[NUM_THIRD_BUTTONS] = { 0x03E0, 0x07FF, 0xD69A, 0xFDA0, 0xFE60, 0xFDA0 };
