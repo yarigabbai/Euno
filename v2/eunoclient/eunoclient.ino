@@ -20,6 +20,7 @@
 #include <EEPROM.h>
 #include <Adafruit_ICM20948.h>
 #include <Adafruit_Sensor.h>
+#include "index_html.h"   // contiene: const char INDEX_HTML[] PROGMEM = R"rawliteral(... )rawliteral";
 
 #include <TinyGPSPlus.h>
 #include <WiFiUdp.h>
@@ -40,6 +41,16 @@ int  applyAdvCalibration(float x, float y);                 // è già definita 
 #include "icm_compass.h"
 
   
+
+#include "euno_network.h"   // STA/AP + mDNS + HTTP + WS + UDP + EEPROM(OP)
+#include "espnow_link.h"    // ESP-NOW verso TFT (opzionale)
+#include "nmea_client.h"    // parser NMEA + $PEUNO,CMD
+EunoNetwork net;
+EunoEspNow  enow;
+EunoCmdAPI  api;
+// Parser unico per linee in ingresso (UDP/WS/ESP-NOW)
+inline void EUNO_PARSE(const String& s){ parseNMEAClientLine(s, api); }
+int externalBearingDeg = -1;  // ultimo bearing esterno valido (per telemetria/UI)
 
 // gg### VARIABILI GLOBALI CONDIVISE ###
 // ###########################################
@@ -189,6 +200,61 @@ bool useGPSHeading = false;
 bool motorControllerState = false;
 TinyGPSPlus gps;
 bool externalBearingEnabled = false;
+// === MAPPING CALLBACK API → LOGICA ESISTENTE (senza alterare pin/algoritmi) ===
+static void api_cmdDelta_internal(int v){
+  // Usa i comandi legacy già gestiti da handleCommandClient
+  if (v==1)        handleCommandClient("ACTION:+1");
+  else if (v==-1)  handleCommandClient("ACTION:-1");
+  else if (v==10)  handleCommandClient("ACTION:+10");
+  else if (v==-10) handleCommandClient("ACTION:-10");
+  else {
+    // fallback: aggiorna direttamente headingCommand se autopilota ON
+    if (motorControllerState){
+      headingCommand = (headingCommand + v) % 360;
+      if (headingCommand<0) headingCommand += 360;
+    }
+  }
+}
+static void api_cmdToggle_internal(){
+  handleCommandClient("ACTION:TOGGLE");
+}
+static void api_cmdSetParam_internal(const String& k,int val){
+  // Reimpiega la tua funzione di update config
+  updateConfig(String("SET:")+k+"="+String(val));
+}
+static void api_cmdMode_internal(const String& m){
+  int mode = headingSourceMode;
+  if      (m=="COMPASS")      mode = 0;
+  else if (m=="FUSION")       mode = 1;
+  else if (m=="EXPERIMENTAL") mode = 2;
+  else if (m=="ADV")          mode = 3;
+  headingSourceMode = mode;
+  sendHeadingSource(mode);
+}
+static void api_cmdCal_internal(const String& w){
+  if (w=="MAG"){
+    calibrationMode = true;
+    calibrationStartTime = millis();
+    resetCalibrationData();
+    debugLog("CAL: Hard-iron avviata.");
+  } else if (w=="GYRO"){
+    performSensorFusionCalibration();
+    debugLog("CAL: Gyro calib eseguita.");
+  } else {
+    handleAdvancedCalibrationCommand(w);
+  }
+}
+static void api_cmdExtBrg_internal(bool on){
+  externalBearingEnabled = on;
+}
+static void api_cmdExternalBearing_internal(int brg){
+  externalBearingDeg = brg;
+  headingCommand = brg; // se ON, la tua logica userà questo valore
+}
+static void api_onOpenPlotterFrame_internal(const String& kind,const String& raw){
+  debugLog(String("OP ")+kind+": "+raw);
+}
+
 unsigned long lastSensorUpdate = 0;
 const unsigned long sensorUpdateInterval = 100; // ms
 
@@ -630,6 +696,28 @@ void readSensors() {
         currentHeading = headingCompass;
     }
 }
+// Ritorna l'heading da pubblicare in base al mode attivo
+int getHeadingByMode(){
+  // calcoli di base:
+  int hdgC = getCorrectedHeading();                  // COMPASS
+  int hdgF = (int)round(getFusedHeading());          // FUSION
+  updateExperimental(hdgF);
+  int hdgE = (int)round(getExperimentalHeading());   // EXPERIMENTAL
+  int hdgA = hdgC;
+  if (isAdvancedCalibrationComplete()){
+    compass.read();
+    float rawX = compass.getX(), rawY = compass.getY();
+    hdgA = applyAdvCalibration(rawX, rawY);          // ADV
+  }
+
+  switch(headingSourceMode){
+    case 0:  return hdgC; // COMPASS
+    case 1:  return hdgF; // FUSION
+    case 2:  return hdgE; // EXPERIMENTAL
+    case 3:  return hdgA; // ADV
+    default: return hdgF;
+  }
+}
 
 // ###########################################
 // ### SETUP E LOOP ###
@@ -696,10 +784,33 @@ compass.read();
     headingExperimental = headingCompass;
     
     // Configura WiFi
-    setupWiFi("EUNO AP", "password");
+    //setupWiFi("EUNO AP", "password");
+// === Rete/UI: STA(EUNOAP→OP) con fallback AP; mDNS, HTTP(/), WS(:81), UDP(:10110)
+  EUNO_LOAD_OP_CREDS(net);
+  net.begin();
+  net.onUdpLine   = [](const String& s){ EUNO_PARSE(s); };
+  net.onUiCommand = [](const String& s){ EUNO_PARSE(s); };
+
+  // ESP-NOW opzionale verso TFT
+  enow.begin();
+  enow.onLine = [](const String& s){ EUNO_PARSE(s); };
+
+  // Collega callback comandi alla logica esistente
+  api.onDelta            = [](int v){ api_cmdDelta_internal(v); };
+  api.onToggle           = [](){ api_cmdToggle_internal(); };
+  api.onSetParam         = [](const String& k,int v){ api_cmdSetParam_internal(k,v); };
+  api.onMode             = [](const String& m){ api_cmdMode_internal(m); };
+  api.onCal              = [](const String& w){ api_cmdCal_internal(w); };
+  api.onExtBrg           = [](bool on){ api_cmdExtBrg_internal(on); };
+  api.onExternalBearing  = [](int brg){ api_cmdExternalBearing_internal(brg); };
+  api.onOpenPlotterFrame = [](const String& kind,const String& raw){ api_onOpenPlotterFrame_internal(kind,raw); };
 }
 
 void loop() {
+// Servizi di rete non bloccanti
+  net.loop();
+  enow.loop();
+
   
     unsigned long currentMillis = millis();
     // Lettura sensori ogni 100 ms
@@ -868,7 +979,40 @@ else {
  if (calibrationMode) {
     currentMillis = millis();
     performCalibration(currentMillis);
+}// Telemetria verso UI (WS) + ESP-NOW e NMEA HDT via UDP
+ static unsigned long _lastTel=0;
+if (millis()-_lastTel >= 200){
+  // calcola ora secondo MODE, così l’effetto è immediato nella UI
+  int hdgOut = getHeadingByMode();
+  int err = calculateDifference(hdgOut, headingCommand);
+
+  String telem = String("$AUTOPILOT")
+               + ",MODE="  + String(headingSourceMode)
+               + ",MOTOR=" + String(motorControllerState?"ON":"OFF")
+               + ",HDG="   + String(hdgOut)
+               + ",ERR="   + String(err);
+
+  // opzionale: allega anche i dettagli che già mostri nella UI
+  int hdgC = getCorrectedHeading();
+  int hdgF = (int)round(getFusedHeading());
+  int hdgE = (int)round(getExperimentalHeading());
+  int hdgA = hdgC;
+  if (isAdvancedCalibrationComplete()){
+    compass.read(); hdgA = applyAdvCalibration(compass.getX(), compass.getY());
+  }
+  telem += ",HDG_C=" + String(hdgC)
+        +  ",HDG_F=" + String(hdgF)
+        +  ",HDG_E=" + String(hdgE)
+        +  ",HDG_A=" + String(hdgA);
+
+  net.sendWS(telem);
+  enow.sendLine(telem);
+  String hdt = String("$HDT,") + String(hdgOut) + ",T";
+  net.sendUDP(hdt);
+
+  _lastTel = millis();
 }}
+
 int applyAdvCalibration(float x, float y) {
   if (advPointCount == 0) {
     // Se non ci sono punti di calibrazione, ritorna l'heading normale
