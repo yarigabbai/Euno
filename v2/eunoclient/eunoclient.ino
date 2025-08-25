@@ -980,38 +980,67 @@ else {
     currentMillis = millis();
     performCalibration(currentMillis);
 }// Telemetria verso UI (WS) + ESP-NOW e NMEA HDT via UDP
- static unsigned long _lastTel=0;
-if (millis()-_lastTel >= 200){
-  // calcola ora secondo MODE, così l’effetto è immediato nella UI
-  int hdgOut = getHeadingByMode();
-  int err = calculateDifference(hdgOut, headingCommand);
+// === TELEMETRIA $AUTOPILOT (WS + ESP-NOW + UDP HDT) =====================
+// Frequenza invio: ~5 Hz per i valori “di controllo” (Heading/Command/Error)
+// NB: l’errore è quello dell’autopilota (niente medie). Solo il campo HDG_C
+// mostrato in UI è smussato 1 Hz per rendere la bussola “ferma” a schermo.
+static unsigned long _lastTel = 0;
+if (millis() - _lastTel >= 200) {
 
-  String telem = String("$AUTOPILOT")
-               + ",MODE="  + String(headingSourceMode)
-               + ",MOTOR=" + String(motorControllerState?"ON":"OFF")
-               + ",HDG="   + String(hdgOut)
-               + ",ERR="   + String(err);
+  // 1) Heading “di controllo” e errore DAL CLIENT (autopilota)
+  int hdgOut = getHeadingByMode();                       // selezione fonte attiva
+  int err    = calculateDifference(hdgOut, headingCommand); // differenza -180..+180
 
-  // opzionale: allega anche i dettagli che già mostri nella UI
-  int hdgC = getCorrectedHeading();
-  int hdgF = (int)round(getFusedHeading());
-  int hdgE = (int)round(getExperimentalHeading());
-  int hdgA = hdgC;
-  if (isAdvancedCalibrationComplete()){
-    compass.read(); hdgA = applyAdvCalibration(compass.getX(), compass.getY());
+  // 2) Compass per UI: SMUSSATO solo per display (1 Hz, media circolare)
+  static float          hdgC_smoothed = NAN;
+  static unsigned long  hdgC_last     = 0;
+  int   hdgC_raw = getCorrectedHeading();                // tilt-compensated dal tuo codice
+  unsigned long now = millis();
+  if (isnan(hdgC_smoothed)) {
+    hdgC_smoothed = hdgC_raw;
+    hdgC_last     = now;
   }
-  telem += ",HDG_C=" + String(hdgC)
-        +  ",HDG_F=" + String(hdgF)
-        +  ",HDG_E=" + String(hdgE)
-        +  ",HDG_A=" + String(hdgA);
+  if (now - hdgC_last >= 1000) {                         // aggiorna 1 volta al secondo
+    float diff = fmodf((hdgC_raw - hdgC_smoothed + 540.0f), 360.0f) - 180.0f;
+    hdgC_smoothed = fmodf(hdgC_smoothed + 0.3f * diff + 360.0f, 360.0f);
+    hdgC_last = now;
+  }
+  int hdgC = (int)lroundf(hdgC_smoothed);
 
-  net.sendWS(telem);
-  enow.sendLine(telem);
+  // 3) Altri heading come già usi (FUSION / EXPERIMENTAL / ADV)
+  int hdgF = (int)round(getFusedHeading());              // gyro+GPS dalla tua fusion
+  updateExperimental(hdgF);
+  int hdgE = (int)round(getExperimentalHeading());
+  int hdgA = hdgC;                                       // fallback: usa compass
+  if (isAdvancedCalibrationComplete()) {
+    compass.read();
+    hdgA = applyAdvCalibrationInterp3D(
+      compass.getX(), compass.getY(), compass.getZ()
+    );
+  }
+
+  // 4) Monta la riga $AUTOPILOT completa, includendo COMMAND per allineare la UI
+  String telem = String("$AUTOPILOT")
+               + ",MODE="    + String(headingSourceMode)              // puoi passarlo anche come stringa se vuoi
+               + ",MOTOR="   + String(motorControllerState ? "ON" : "OFF")
+               + ",HDG="     + String(hdgOut)                          // heading “di controllo”
+               + ",COMMAND=" + String(headingCommand)                  // allinea la UI al valore reale del client
+               + ",ERR="     + String(err)                             // errore dell’AUTOPILOTA
+               + ",HDG_C="   + String(hdgC)                            // compass smussato 1 Hz SOLO per display
+               + ",HDG_F="   + String(hdgF)
+               + ",HDG_E="   + String(hdgE)
+               + ",HDG_A="   + String(hdgA);
+
+  // 5) Invii: WS (UI), ESP-NOW (display remoto), e HDT NMEA via UDP broadcast/unicast
+  net.sendWS(telem);                      // WebSocket UI (parser lato browser usa COMMAND/ERR/HDG_*)
+  enow.sendLine(telem);                   // opzionale: schermo esterno via ESP-NOW
   String hdt = String("$HDT,") + String(hdgOut) + ",T";
-  net.sendUDP(hdt);
+  net.sendUDP(hdt);                       // NMEA verso OpenPlotter/PC
 
   _lastTel = millis();
-}}
+}
+// =======================================================================
+}
 
 int applyAdvCalibration(float x, float y) {
   if (advPointCount == 0) {

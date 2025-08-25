@@ -3,20 +3,7 @@
 
   Licensed under CC BY-NC 4.0:
   Creative Commons Attribution-NonCommercial 4.0 International
-
-  You are free to use, modify, and share this code
-  for NON-COMMERCIAL purposes only.
-
-  You must credit the original author:
-  Yari Gabbai / EUNO Autopilot
-
-  Full license text:
-  https://creativecommons.org/licenses/by-nc/4.0/legalcode
 */
-
-// ===================
-// File: calibration.h
-// ===================
 
 #ifndef CALIBRATION_H
 #define CALIBRATION_H
@@ -45,15 +32,16 @@ void performCalibration(unsigned long currentMillis);
 int  getCorrectedHeading();
 
 // ──────────────────────────────────────────────────────────────────────
-// Reset min/max per hard-iron (resta identico)
+// Utility
+static inline float wrap360(float a){ a = fmodf(a,360.0f); if(a<0)a+=360.0f; return a; }
+// differenza angolare a→b in [-180,+180]
+static inline float angdiff(float a, float b){ return fmodf((a-b+540.0f),360.0f)-180.0f; }
+
 // ──────────────────────────────────────────────────────────────────────
+// Reset min/max per hard-iron (identico)
 void resetCalibrationData() {
-  minX =  32767.0f;
-  minY =  32767.0f;
-  minZ =  32767.0f;
-  maxX = -32768.0f;
-  maxY = -32768.0f;
-  maxZ = -32768.0f;
+  minX =  32767.0f; minY =  32767.0f; minZ =  32767.0f;
+  maxX = -32768.0f; maxY = -32768.0f; maxZ = -32768.0f;
   Serial.println("DEBUG: Calibration data reset");
 }
 
@@ -62,14 +50,13 @@ void resetCalibrationData() {
   Calibrazione hard-iron: raccoglie min/max XYZ per ~10 s.
   Alla fine salva offset X/Y/Z in EEPROM (int16_t) @0..5.
 */
-// ──────────────────────────────────────────────────────────────────────
 void performCalibration(unsigned long currentMillis) {
   if (motorControllerState) {
-    debugLog("Motore attivo, calibrazione sospesa.");
+    Serial.println("Motore attivo, calibrazione sospesa.");
     return;
   }
 
-  if (currentMillis - calibrationStartTime < 10000UL) {
+  if (currentMillis - calibrationStartTime < 20000UL) {
     compass.read();
     float x = compass.getX();
     float y = compass.getY();
@@ -103,74 +90,91 @@ void performCalibration(unsigned long currentMillis) {
     EEPROM.commit();
     delay(100);
 
-    debugLog("DEBUG: Calibration complete and offsets saved.");
+    Serial.println("DEBUG: Calibration complete and offsets saved.");
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────
 /*
-  getCorrectedHeading()
-  - Usa offset hard-iron X/Y/Z.
-  - Se l’accelerometro è disponibile, effettua una *tilt compensation leggera*
-    (roll/pitch da accel, poi ruota il vettore mag in orizzontale).
-  - Se l’accel non è disponibile, fallback al piano XY classico.
-  - Applica headingOffset (C-GPS) e normalizza 0..359.
+  getCorrectedHeading() — COMPASS **senza tilt compensation**
+  - Usa solo piano XY: heading = atan2( (My - offY), (Mx - offX) ).
+  - NIENTE pitch/roll, NIENTE rotazioni del vettore magnetico.
+  - Media circolare delle letture raccolte in finestra di 500 ms.
+  - Pubblica un valore **ogni 500 ms**; tra un publish e l’altro restituisce l’ultimo.
+  - Z viene usato SOLO per scartare outlier evidenti (non per ruotare il vettore).
 */
-// ──────────────────────────────────────────────────────────────────────
 int getCorrectedHeading() {
-  // 1) leggi ultimo magnetometro e applica offset hard-iron
+  // Stato per media a finestra 500 ms
+  static float sumCos = 0.0f;
+  static float sumSin = 0.0f;
+  static uint16_t sampleCount = 0;
+  static unsigned long lastPublish = 0;
+  static int lastOutputDeg = 0;
+  static bool initialized = false;
+
+  // 1) leggi magnetometro
   compass.read();
   float mx = compass.getX() - (float)compassOffsetX;
   float my = compass.getY() - (float)compassOffsetY;
   float mz = compass.getZ() - (float)compassOffsetZ;
 
-  // 2) prova a leggere accelerometro (per roll/pitch)
-  sensors_event_t acc;
-  bool haveAcc = compass.getAccelEvent(acc); // usa icm_compass.h
-  float headingDeg;
+  // 2) heading su piano XY (NO tilt-comp)
+  float headingDeg = atan2f(my, mx) * 180.0f / (float)M_PI;
+  if (headingDeg < 0.0f) headingDeg += 360.0f;
 
-  if (haveAcc && !isnan(acc.acceleration.x) && !isnan(acc.acceleration.y) && !isnan(acc.acceleration.z)) {
-    // ── pitch / roll dal solo accelerometro
-    // Nota: stesse formule che usi già nella fusion (consistenti col resto).
-    float ax = acc.acceleration.x;
-    float ay = acc.acceleration.y;
-    float az = acc.acceleration.z;
-
-    // Evita divisioni strane quando il modulo è "in caduta libera" (norma ≈ 0)
-    float gnorm = sqrtf(ax*ax + ay*ay + az*az);
-    if (gnorm < 1e-3f) {
-      // Fallback piano XY
-      headingDeg = atan2f(my, mx) * 180.0f / (float)M_PI;
-    } else {
-      // Pitch / Roll (rad)
-      float pitch = atanf(-ax / sqrtf(ay*ay + az*az));
-      float roll  = atanf( ay / az );
-
-      // ── ruota il vettore magnetico per compensare inclinazione
-      // Formule standard:
-      // Xh = mx*cos(pitch) + mz*sin(pitch)
-      // Yh = mx*sin(roll)*sin(pitch) + my*cos(roll) - mz*sin(roll)*cos(pitch)
-      float cp = cosf(pitch), sp = sinf(pitch);
-      float cr = cosf(roll),  sr = sinf(roll);
-
-      float Xh = mx * cp + mz * sp;
-      float Yh = mx * sr * sp + my * cr - mz * sr * cp;
-
-      // Manteniamo la stessa convenzione segno del calcolo “piano” (atan2(Y, X))
-      headingDeg = atan2f(Yh, Xh) * 180.0f / (float)M_PI;
-    }
-  } else {
-    // ── fallback se accel non disponibile
-    headingDeg = atan2f(my, mx) * 180.0f / (float)M_PI;
+  // 3) piccolo “gate” su Z: se Z è anomalo rispetto a XY (impulsi/EMI), rigetta il campione
+  // soglia semplice: se |mz| > 3 * media(|mx|,|my|) e |mx|+|my| è piccolo, scarta (protezione dolce)
+  float absmx = fabsf(mx), absmy = fabsf(my), absmz = fabsf(mz);
+  float xyMean = 0.5f * (absmx + absmy);
+  bool reject = (xyMean < 1.0f && absmz > 3.0f * fmaxf(1.0f, xyMean)); // numeri in µT: 1.0 è safe floor
+  if (!reject) {
+    // 4) accumula per media circolare
+    float rad = headingDeg * (float)M_PI / 180.0f;
+    sumCos += cosf(rad);
+    sumSin += sinf(rad);
+    sampleCount++;
   }
 
-  if (headingDeg < 0.0f) headingDeg += 360.0f;
+  // 5) publish ogni 500 ms (2 Hz)
+  unsigned long now = millis();
 
-  // 3) Offset software C-GPS e normalizzazione 0..359
-  headingDeg = fmodf(headingDeg + (float)headingOffset, 360.0f);
-  if (headingDeg < 0.0f) headingDeg += 360.0f;
+  if (!initialized) {
+    // primo valore: pubblica subito
+    float avgRad = atan2f(sumSin, sumCos);
+    float avgDeg = avgRad * 180.0f / (float)M_PI;
+    if (avgDeg < 0.0f) avgDeg += 360.0f;
+    // offset software (C‑GPS)
+    avgDeg = fmodf(avgDeg + (float)headingOffset, 360.0f);
+    if (avgDeg < 0.0f) avgDeg += 360.0f;
 
-  return (int)lroundf(headingDeg);
+    lastOutputDeg = (int)lroundf(avgDeg);
+    lastPublish = now;
+    initialized = true;
+
+    // reset finestra
+    sumCos = 0.0f; sumSin = 0.0f; sampleCount = 0;
+    return lastOutputDeg;
+  }
+
+  if (now - lastPublish >= 500UL) {
+    if (sampleCount > 0) {
+      float avgRad = atan2f(sumSin, sumCos);
+      float avgDeg = avgRad * 180.0f / (float)M_PI;
+      if (avgDeg < 0.0f) avgDeg += 360.0f;
+
+      // offset software (C‑GPS)
+      avgDeg = fmodf(avgDeg + (float)headingOffset, 360.0f);
+      if (avgDeg < 0.0f) avgDeg += 360.0f;
+
+      lastOutputDeg = (int)lroundf(avgDeg);
+    }
+    // reset finestra 500 ms
+    sumCos = 0.0f; sumSin = 0.0f; sampleCount = 0;
+    lastPublish = now;
+  }
+
+  // ritorna sempre l’ultimo valore pubblicato (stabile)
+  return lastOutputDeg;
 }
 
 #endif // CALIBRATION_H

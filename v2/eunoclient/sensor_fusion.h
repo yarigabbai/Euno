@@ -64,7 +64,7 @@ unsigned long lastCorrection = 0;
 // COSTANTI E PARAMETRI DI CALIBRAZIONE
 // ======================================================================
 const float alphaSpeed            = 0.2;    // coeff. per la media esponenziale della velocità
-const float gyroCalibrationFactor = 0.5;    // fattore opzionale di taratura scala gyro (lascia 0.5 se ti trovi bene)
+const float gyroCalibrationFactor = 1.0;    // fattore opzionale di taratura scala gyro (lascia 0.5 se ti trovi bene)
 const float correctionFactor      = 0.1;    // fattore di correzione verso heading GPS
 const unsigned long CORRECTION_INTERVAL = 10000; // ms fra correzioni verso GPS
 

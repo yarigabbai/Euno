@@ -7,12 +7,14 @@
 #include <math.h>
 
 // ==================================================
-// CONFIGURAZIONE ORIENTAMENTO (se devi invertire assi)
+// CONFIGURAZIONE ORIENTAMENTO (swap/inversioni assi)
 // ==================================================
+// Dai tuoi dump, l’asse Y NON va invertito: rimettiamo +1.
 #define MAG_INV_X   (+1)
-#define MAG_INV_Y   (-1)   // invertito per correggere verso orario
+#define MAG_INV_Y   (-1)   // <— cambiato da -1 a +1
 #define MAG_INV_Z   (+1)
 
+// Se in futuro noti accelerometro/gyro “girati” nel case, regoli qui:
 #define ACC_INV_X   (+1)
 #define ACC_INV_Y   (-1)
 #define ACC_INV_Z   (+1)
@@ -48,18 +50,20 @@ public:
     return begin(0x68, wire);
   }
 
-  // >>> aggiunto per compatibilità con eunoclient.ino
+  // compatibilità
   uint8_t getAddress() const { return used_addr; }
 
   void read() {
+    // Lettura MAG affidabile via sensore dedicato Adafruit (AK09916)
     sensors_event_t mag;
     icm.getMagnetometerSensor()->getEvent(&mag);
 
-    // applico inversioni
+    // Applica inversioni definite sopra
     mx = mag.magnetic.x * MAG_INV_X;
     my = mag.magnetic.y * MAG_INV_Y;
     mz = mag.magnetic.z * MAG_INV_Z;
 
+    // Heading matematico: 0°=Est, +90°=Nord; la UI ruota già (deg-90) nel disegno
     float h = atan2f(my, mx) * 180.0f / (float)M_PI;
     if (h < 0.0f) h += 360.0f;
     heading = h;

@@ -7,6 +7,7 @@
 #include <WiFiUdp.h>
 #include <Update.h>
 #include <functional>
+#include <esp_wifi.h>   // per banda/power (ESP32-S3)
 
 // ===================== CONFIG RETE =====================
 struct EunoNetConfig {
@@ -81,6 +82,63 @@ public:
   void loop(){
     server.handleClient();
     ws.loop();
+// --- Watchdog STA: se perdi il link, prova a rientrare --- //
+static unsigned long _lastChk = 0;
+if (millis() - _lastChk > 3000) { // ogni 3s
+  _lastChk = millis();
+  if (mode == LINK_STA) {
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("[NET] STA lost → reconnect...");
+      // tenta reconnect rapido
+      WiFi.reconnect();
+      unsigned long t0 = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 3000) { delay(100); }
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[NET] reconnect fail");
+        // opzionale: passa in AP se serve subito UI
+        // beginAP();   // ← se vuoi forzare AP al volo, scommenta
+      } else {
+        ipStr = WiFi.localIP().toString();
+        Serial.println("[NET] STA reconnected @ " + ipStr);
+      }
+    }
+  }
+}
+
+// --- Retry periodico AP → STA (se in fallback e hai credenziali) --- //
+static unsigned long _lastRetry = 0;
+if (mode == LINK_AP && millis() - _lastRetry > 30000) { // ogni 30s
+  _lastRetry = millis();
+
+  const bool hasSTA1 = (cfg.sta1_ssid.length() && cfg.sta1_pass.length());
+  const bool hasSTA2 = (cfg.sta2_ssid.length() && cfg.sta2_pass.length());
+
+  if (hasSTA1 || hasSTA2) {
+    Serial.println("[NET] AP→STA retry...");
+    bool ok = false;
+
+    if (hasSTA1 && trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) {
+      ok = true;
+    } else if (hasSTA2 && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) {
+      ok = true;
+    }
+
+    if (ok) {
+      mode = LINK_STA;
+      // aggiorna IP e (ri)registra mDNS per sicurezza
+      ipStr = WiFi.localIP().toString();
+      MDNS.end();
+      if (MDNS.begin(mdnsName.c_str())) {
+        Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
+      }
+      Serial.println("[NET] Switched to STA @ " + ipStr);
+      // Nota: server HTTP e WS restano attivi; non serve riavviarli
+    } else {
+      Serial.println("[NET] AP→STA retry failed, remain AP");
+    }
+  }
+}
+
 
     // Hello periodico verso console web
     if (millis() - lastHello > 1000 && wsReady) {
@@ -123,25 +181,66 @@ public:
 
 private:
   bool trySTA(const char* ssid, const char* pass){
-    if (!ssid || !ssid[0]) return false;
-    WiFi.mode(WIFI_STA);
+  if (!ssid || !ssid[0]) return false;
+
+  // ripulisci stato Wi‑Fi e DHCP
+  WiFi.mode(WIFI_OFF);
+  delay(50);
+  WiFi.persistent(false);
+  WiFi.disconnect(true, true);
+  delay(50);
+
+  // set 2.4 GHz, no power-save, massima potenza
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);   // massima disponibile
+
+  // reset DHCP, hostname utile
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  WiFi.setHostname(mdnsName.c_str());
+
+  Serial.printf("[NET] Try STA → %s ...\n", ssid);
+  WiFi.begin(ssid, pass);
+
+  // attesa estesa con dots (15s), poi un ultimo “kick”
+  unsigned long t0=millis();
+  while (WiFi.status()!=WL_CONNECTED && millis()-t0 < 15000){
+    delay(200); Serial.print(".");
+  }
+  if (WiFi.status()!=WL_CONNECTED){
+    // un tentativo extra con disconnect/riconnessione rapida
+    Serial.print(" kick");
+    WiFi.disconnect();
+    delay(200);
     WiFi.begin(ssid, pass);
-    Serial.printf("[NET] Try STA → %s ...\n", ssid);
-    unsigned long t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000){
-      delay(200);
-      Serial.print(".");
+    t0 = millis();
+    while (WiFi.status()!=WL_CONNECTED && millis()-t0 < 5000){
+      delay(200); Serial.print(".");
     }
-    if (WiFi.status() == WL_CONNECTED){
-      ipStr = WiFi.localIP().toString();
-      Serial.println("\n[NET] STA OK @ " + ipStr);
-      return true;
-    }
-    Serial.println("\n[NET] STA FAIL");
-    return false;
   }
 
+  if (WiFi.status()==WL_CONNECTED){
+    ipStr = WiFi.localIP().toString();
+    Serial.println("\n[NET] STA OK @ " + ipStr);
+    return true;
+  }
+  Serial.println("\n[NET] STA FAIL");
+  return false;
+}
+
+
   void beginAP(){
+    WiFi.persistent(false);
+WiFi.disconnect(true, true);
+WiFi.setSleep(false);
+esp_wifi_set_ps(WIFI_PS_NONE);
+delay(50);
+
+// hostname utile per DHCP/mDNS
+WiFi.setHostname(mdnsName.c_str());
+
     WiFi.mode(WIFI_AP);
     WiFi.softAP(cfg.ap_ssid.c_str(), cfg.ap_pass.c_str());
     mode  = LINK_AP;
