@@ -191,7 +191,7 @@ private:
   delay(50);
 
   // set 2.4 GHz, no power-save, massima potenza
-  WiFi.mode(WIFI_STA);
+WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
   esp_wifi_set_ps(WIFI_PS_NONE);
   esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
