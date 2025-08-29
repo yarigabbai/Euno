@@ -31,14 +31,17 @@ void resetCalibrationData();
 void performCalibration(unsigned long currentMillis);
 int  getCorrectedHeading();
 
+// Aggiungiamo i prototipi per tilt
+inline void getTiltAngles(float &pitch, float &roll);
+inline float compensateTilt(float mx, float my, float mz, float pitch, float roll);
+
 // ──────────────────────────────────────────────────────────────────────
 // Utility
 static inline float wrap360(float a){ a = fmodf(a,360.0f); if(a<0)a+=360.0f; return a; }
-// differenza angolare a→b in [-180,+180]
 static inline float angdiff(float a, float b){ return fmodf((a-b+540.0f),360.0f)-180.0f; }
 
 // ──────────────────────────────────────────────────────────────────────
-// Reset min/max per hard-iron (identico)
+// Reset min/max per hard-iron
 void resetCalibrationData() {
   minX =  32767.0f; minY =  32767.0f; minZ =  32767.0f;
   maxX = -32768.0f; maxY = -32768.0f; maxZ = -32768.0f;
@@ -47,7 +50,7 @@ void resetCalibrationData() {
 
 // ──────────────────────────────────────────────────────────────────────
 /*
-  Calibrazione hard-iron: raccoglie min/max XYZ per ~10 s.
+  Calibrazione hard-iron: raccoglie min/max XYZ per ~20 s.
   Alla fine salva offset X/Y/Z in EEPROM (int16_t) @0..5.
 */
 void performCalibration(unsigned long currentMillis) {
@@ -79,7 +82,6 @@ void performCalibration(unsigned long currentMillis) {
     float offYf = 0.5f * (maxY + minY);
     float offZf = 0.5f * (maxZ + minZ);
 
-    // Salva come int16_t in RAM + EEPROM
     compassOffsetX = (int16_t)lroundf(offXf);
     compassOffsetY = (int16_t)lroundf(offYf);
     compassOffsetZ = (int16_t)lroundf(offZf);
@@ -96,15 +98,9 @@ void performCalibration(unsigned long currentMillis) {
 
 // ──────────────────────────────────────────────────────────────────────
 /*
-  getCorrectedHeading() — COMPASS **senza tilt compensation**
-  - Usa solo piano XY: heading = atan2( (My - offY), (Mx - offX) ).
-  - NIENTE pitch/roll, NIENTE rotazioni del vettore magnetico.
-  - Media circolare delle letture raccolte in finestra di 500 ms.
-  - Pubblica un valore **ogni 500 ms**; tra un publish e l’altro restituisce l’ultimo.
-  - Z viene usato SOLO per scartare outlier evidenti (non per ruotare il vettore).
+  getCorrectedHeading() — COMPASS con tilt compensation
 */
 int getCorrectedHeading() {
-  // Stato per media a finestra 500 ms
   static float sumCos = 0.0f;
   static float sumSin = 0.0f;
   static uint16_t sampleCount = 0;
@@ -112,38 +108,34 @@ int getCorrectedHeading() {
   static int lastOutputDeg = 0;
   static bool initialized = false;
 
-  // 1) leggi magnetometro
   compass.read();
   float mx = compass.getX() - (float)compassOffsetX;
   float my = compass.getY() - (float)compassOffsetY;
   float mz = compass.getZ() - (float)compassOffsetZ;
 
-  // 2) heading su piano XY (NO tilt-comp)
-  float headingDeg = atan2f(my, mx) * 180.0f / (float)M_PI;
+  float pitch, roll;
+  getTiltAngles(pitch, roll);
+
+  float headingRad = compensateTilt(mx, my, mz, pitch, roll);
+  float headingDeg = headingRad * 180.0f / (float)M_PI;
   if (headingDeg < 0.0f) headingDeg += 360.0f;
 
-  // 3) piccolo “gate” su Z: se Z è anomalo rispetto a XY (impulsi/EMI), rigetta il campione
-  // soglia semplice: se |mz| > 3 * media(|mx|,|my|) e |mx|+|my| è piccolo, scarta (protezione dolce)
   float absmx = fabsf(mx), absmy = fabsf(my), absmz = fabsf(mz);
   float xyMean = 0.5f * (absmx + absmy);
-  bool reject = (xyMean < 1.0f && absmz > 3.0f * fmaxf(1.0f, xyMean)); // numeri in µT: 1.0 è safe floor
+  bool reject = (xyMean < 1.0f && absmz > 3.0f * fmaxf(1.0f, xyMean));
+
   if (!reject) {
-    // 4) accumula per media circolare
-    float rad = headingDeg * (float)M_PI / 180.0f;
-    sumCos += cosf(rad);
-    sumSin += sinf(rad);
+    sumCos += cosf(headingRad);
+    sumSin += sinf(headingRad);
     sampleCount++;
   }
 
-  // 5) publish ogni 500 ms (2 Hz)
   unsigned long now = millis();
 
   if (!initialized) {
-    // primo valore: pubblica subito
     float avgRad = atan2f(sumSin, sumCos);
     float avgDeg = avgRad * 180.0f / (float)M_PI;
     if (avgDeg < 0.0f) avgDeg += 360.0f;
-    // offset software (C‑GPS)
     avgDeg = fmodf(avgDeg + (float)headingOffset, 360.0f);
     if (avgDeg < 0.0f) avgDeg += 360.0f;
 
@@ -151,7 +143,6 @@ int getCorrectedHeading() {
     lastPublish = now;
     initialized = true;
 
-    // reset finestra
     sumCos = 0.0f; sumSin = 0.0f; sampleCount = 0;
     return lastOutputDeg;
   }
@@ -161,20 +152,37 @@ int getCorrectedHeading() {
       float avgRad = atan2f(sumSin, sumCos);
       float avgDeg = avgRad * 180.0f / (float)M_PI;
       if (avgDeg < 0.0f) avgDeg += 360.0f;
-
-      // offset software (C‑GPS)
       avgDeg = fmodf(avgDeg + (float)headingOffset, 360.0f);
       if (avgDeg < 0.0f) avgDeg += 360.0f;
 
       lastOutputDeg = (int)lroundf(avgDeg);
     }
-    // reset finestra 500 ms
     sumCos = 0.0f; sumSin = 0.0f; sampleCount = 0;
     lastPublish = now;
   }
 
-  // ritorna sempre l’ultimo valore pubblicato (stabile)
   return lastOutputDeg;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Implementazioni funzioni tilt
+// ──────────────────────────────────────────────────────────────────────
+inline void getTiltAngles(float &pitch, float &roll) {
+  sensors_event_t acc;
+  if (compass.getAccelEvent(acc)) {
+    pitch = atan2f(-acc.acceleration.x,
+                   sqrtf(acc.acceleration.y*acc.acceleration.y + acc.acceleration.z*acc.acceleration.z));
+    roll  = atan2f(acc.acceleration.y, acc.acceleration.z);
+  } else {
+    pitch = 0;
+    roll  = 0;
+  }
+}
+
+inline float compensateTilt(float mx, float my, float mz, float pitch, float roll) {
+  float xh = mx * cosf(pitch) + mz * sinf(pitch);
+  float yh = mx * sinf(roll) * sinf(pitch) + my * cosf(roll) - mz * sinf(roll) * cosf(pitch);
+  return atan2f(yh, xh);
 }
 
 #endif // CALIBRATION_H

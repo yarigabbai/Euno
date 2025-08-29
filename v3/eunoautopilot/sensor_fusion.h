@@ -38,19 +38,19 @@ int getCorrectedHeading();    // Funzione definita nel .ino per leggere la busso
 // ======================================================================
 // VARIABILI GLOBALI DI SENSOR FUSION
 // ======================================================================
-bool gyroInitialized = false;          // Indica se è stato inizializzato il gyro
-bool sensorFusionCalibrated = false;   // Indica se abbiamo già fatto la calibrazione iniziale
-bool initialGPSOffsetSet = false;      // Indica se abbiamo sincronizzato il gyro al GPS la prima volta
-bool expInitialized = false;           // Per l’heading sperimentale
+bool gyroInitialized = false;          
+bool sensorFusionCalibrated = false;   
+bool initialGPSOffsetSet = false;      
+bool expInitialized = false;           
 
-float accPitchOffset = 0;     // Offset accelerometro per tilt pitch
-float accRollOffset  = 0;     // Offset accelerometro per tilt roll
-float gyroOffsetZ    = 0;     // Offset di zero del giroscopio (ASSE Z) **in rad/s**
+float accPitchOffset = 0;     
+float accRollOffset  = 0;     
+float gyroOffsetZ    = 0;     
 
 // Heading principali (in gradi):
-float headingGyro = 0.0;         // Il valore “fuso” da IMU + GPS
-float headingExperimental = 0.0; // Filtro sperimentale aggiuntivo
-float getAdvancedHeading();      // futuro algoritmo “ADV”
+float headingGyro = 0.0;         
+float headingExperimental = 0.0; 
+float getAdvancedHeading();      
 
 // Buffer per correzione media GPS
 float gpsHeadingBuffer[5];
@@ -63,10 +63,10 @@ unsigned long lastCorrection = 0;
 // ======================================================================
 // COSTANTI E PARAMETRI DI CALIBRAZIONE
 // ======================================================================
-const float alphaSpeed            = 0.2;    // coeff. per la media esponenziale della velocità
-const float gyroCalibrationFactor = 1.0;    // fattore opzionale di taratura scala gyro (lascia 0.5 se ti trovi bene)
-const float correctionFactor      = 0.1;    // fattore di correzione verso heading GPS
-const unsigned long CORRECTION_INTERVAL = 10000; // ms fra correzioni verso GPS
+const float alphaSpeed            = 0.2;    
+const float gyroCalibrationFactor = 1.0;    
+const float correctionFactor      = 0.1;    
+const unsigned long CORRECTION_INTERVAL = 10000; // ms
 
 // ======================================================================
 // FUNZIONI DI SUPPORTO
@@ -90,7 +90,7 @@ inline void readAccelerometer(float &ax, float &ay, float &az) {
   }
 }
 
-// GYRO Z: ritorna **rad/s** (unità SI dalla Adafruit Unified Sensor)
+// GYRO Z: ritorna **rad/s**
 inline float readGyroZ() {
   sensors_event_t g;
   if (compass.getGyroEvent(g)) {
@@ -105,16 +105,20 @@ inline void calibrateTilt() {
   float pitchSum = 0;
   float rollSum  = 0;
   const int samples = 500;
+  
   for (int i = 0; i < samples; i++) {
     float ax, ay, az;
     readAccelerometer(ax, ay, az);
-    pitchSum += atan2(-ax, sqrtf(ay * ay + az * az));
-    rollSum  += atan2(ay, az);
+    pitchSum += atan2f(-ax, sqrtf(ay*ay + az*az));
+    rollSum  += atan2f(ay, az);
     delay(5);
   }
+  
   accPitchOffset = pitchSum / samples;
   accRollOffset  = rollSum  / samples;
-  debugLog("DEBUG: Accelerometer tilt calibrated.");
+  
+  debugLog("DEBUG: Tilt calibrated. Pitch offset: " + String(accPitchOffset, 4) + 
+           " rad, Roll offset: " + String(accRollOffset, 4) + " rad");
 }
 
 // Calibra lo zero del giroscopio sull’asse Z (**rad/s**)
@@ -132,10 +136,7 @@ inline void calibrateGyro() {
 }
 
 inline void performSensorFusionCalibration() {
-  debugLog("DEBUG: Calibrating accelerometer tilt...");
   calibrateTilt();
-
-  debugLog("DEBUG: Calibrating gyro...");
   calibrateGyro();
 
   headingGyro = getCorrectedHeading();   // gradi
@@ -174,12 +175,11 @@ inline void updateSensorFusion() {
   if (dt <= 0) return;
 
   // ---- INTEGRAZIONE GYRO (ICM20948 → rad/s) ----
-  float rawGz = readGyroZ();               // rad/s
+  float rawGz = readGyroZ();               
   if (!isnan(rawGz)) {
-    float gz_rad = (rawGz - gyroOffsetZ);  // rad/s centrato
-    // Converti in deg/s e applica eventuale taratura di scala
-    float rateZ_deg = (gz_rad * 180.0f / M_PI) * gyroCalibrationFactor; // deg/s
-    headingGyro += rateZ_deg * dt;         // gradi
+    float gz_rad = (rawGz - gyroOffsetZ);  
+    float rateZ_deg = (gz_rad * 180.0f / M_PI) * gyroCalibrationFactor; 
+    headingGyro += rateZ_deg * dt;         
     headingGyro = fmodf(headingGyro + 360.0f, 360.0f);
   }
 
@@ -216,12 +216,12 @@ inline float getFusedHeading() {
 }
 
 // ======================================================================
-// EXPERIMENTAL HEADING (parametrico con alpha dinamico)
+// EXPERIMENTAL HEADING
 // ======================================================================
 inline void updateExperimental(float input) {
-  const float alphaFast = 0.8f;   // rapido per grandi differenze
-  const float alphaSlow = 0.3f;   // più lento per piccoli aggiustamenti
-  const float thresh   = 10.0f;   // soglia in gradi
+  const float alphaFast = 0.8f;   
+  const float alphaSlow = 0.3f;   
+  const float thresh   = 10.0f;   
 
   if (!expInitialized) {
     headingExperimental = input;

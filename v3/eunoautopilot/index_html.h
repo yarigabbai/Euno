@@ -1,6 +1,6 @@
 #pragma once
 // UI locale per EUNO Client – WS :81, HTTP :80
-// Mostra HERO (Heading/Command/Error + tasti grandi) e bussola con 2 lancette.
+// Mostra HERO (Heading/Command/Error/COG/SOG + tasti grandi) e bussola con 2 lancette.
 
 const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <html lang="it">
@@ -30,9 +30,14 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
   .good{background:rgba(46,204,113,.12)}
   .bad{background:rgba(255,92,92,.12)}
   .hint{color:var(--muted);font-size:12px}
-  .val{font:42px/1.1 mono}
+.val{font:clamp(24px,6vw,42px)/1.1 mono}
   .lbl{color:var(--muted);font-size:13px;margin-bottom:6px}
-  .hero-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.hero-grid{display:grid;.hero-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
+  gap:6px;            /* spazio dimezzato */
+}
+-template-columns:repeat(5,1fr);gap:12px}
   .btn-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
   .btn-lg{padding:18px 20px;font-size:22px;border-radius:16px;min-width:86px}
   .stack{display:grid;gap:6px}
@@ -40,7 +45,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .w90{width:90px} .w120{width:120px}
   canvas{width:100%;max-width:380px;height:auto;aspect-ratio:1;border-radius:12px;border:1px solid var(--border);background:#0e141c;margin:auto}
-  @media (max-width:640px){ .hero-grid{grid-template-columns:1fr 1fr 1fr} }
 </style>
 </head>
 <body>
@@ -50,7 +54,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 </header>
 
 <main>
-  <!-- HERO: valori grandi + tasti grandi -->
+  <!-- HERO -->
   <section class="card">
     <div class="hero-grid">
       <div class="stack">
@@ -65,16 +69,26 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
         <div class="lbl">Error</div>
         <div class="val" id="err_big">—</div>
       </div>
+      <div class="stack">
+        <div class="lbl">COG</div>
+        <div class="val" id="cog_big">—</div>
+      </div>
+      <div class="stack">
+        <div class="lbl">SOG</div>
+        <div class="val" id="sog_big">—</div>
+      </div>
     </div>
+
     <div class="sep"></div>
     <div class="btn-row">
       <button class="btn-lg bad"  onclick="delta(-10)">−10</button>
       <button class="btn-lg bad"  onclick="delta(-1)">−1</button>
       <button class="btn-lg good" onclick="toggle()">ON/OFF</button>
-      <button class="btn-lg"      onclick="delta(+1)">+1</button>
-      <button class="btn-lg"      onclick="delta(+10)">+10</button>
+      <button class="btn-lg bad"  onclick="delta(+1)">+1</button>
+      <button class="btn-lg bad"  onclick="delta(+10)">+10</button>
     </div>
   </section>
+
 
   <!-- Bussola con due lancette: HDG (azzurra) e CMD (arancione) -->
   <section class="card">
@@ -164,12 +178,15 @@ function wsConnect(){
   ws.onopen = _=>{ netEl.textContent='NET: WS OK'; netEl.style.background='rgba(46,204,113,.12)'; log('WS connected '+url); };
   ws.onclose = _=>{ netEl.textContent='NET: WS OFF'; netEl.style.background=''; log('WS closed, retry 2s'); setTimeout(wsConnect,2000); };
   ws.onerror = _=> log('WS error');
-  ws.onmessage = ev=>{
-    const t = ev.data||'';
-    if(t.startsWith('$AUTOPILOT')) parseTelem(t);
-    else if(t.startsWith('LOG:')) log(t.slice(4));
-    else log(t);
-  };
+ws.onmessage = ev=>{
+  const t = (ev.data || '').trim();
+  console.log("RAW FRAME:", t);
+  if (t.startsWith('$AUTOPILOT')) parseTelem(t);
+  else if (t.startsWith('LOG:'))  log(t.slice(4));
+  else                             log(t);
+};
+
+
 }
 function send(s){ if(ws && ws.readyState===1){ ws.send(s); log('> '+s); } }
 function delta(v){ const s = v>0?('+'+v):v; send('$PEUNO,CMD,DELTA='+s); cmd = (cmd + v + 360)%360; paintHero(); drawRose(); }
@@ -200,23 +217,44 @@ function kv(line){
 }
 function parseTelem(line){
   const m = kv(line);
-  if(m.MODE)   document.getElementById('mode').textContent  = m.MODE;
-  if(m.MOTOR)  document.getElementById('motor').textContent = m.MOTOR;
-  if(m.HDG){   hdg = (parseFloat(m.HDG)||0+360)%360; document.getElementById('hdg_big').textContent = Math.round(hdg)+'°'; }
-  // Command può arrivare come COMMAND o CMD; se non c'è, manteniamo quello locale
-  if(m.COMMAND) cmd = (parseFloat(m.COMMAND)||0+360)%360;
-  else if(m.CMD) cmd = (parseFloat(m.CMD)||0+360)%360;
-  if(m.ERR){    err = parseInt(m.ERR)||0; }
-  // dettagli
-  if(m.HDG_C)  document.getElementById('hdg_c').textContent = m.HDG_C+'°';
-  if(m.HDG_F)  document.getElementById('hdg_f').textContent = m.HDG_F+'°';
-  if(m.HDG_E)  document.getElementById('hdg_e').textContent = m.HDG_E+'°';
-  if(m.HDG_A)  document.getElementById('hdg_a').textContent = m.HDG_A+'°';
-  if(m.SOG)    document.getElementById('sog').textContent   = m.SOG+' kn';
-  if(m.EXTBRG) document.getElementById('extbrg').textContent= m.EXTBRG+'°';
 
-  paintHero(); drawRose();
+  // Mode/Motor
+  if (m.MODE)   document.getElementById('mode').textContent  = m.MODE;
+  if (m.MOTOR)  document.getElementById('motor').textContent = m.MOTOR;
+
+  // HEADING (accetta HEADING o HDG)
+  if (m.HEADING)      hdg = ((parseFloat(m.HEADING) || 0) + 360) % 360;
+  else if (m.HDG)     hdg = ((parseFloat(m.HDG)     || 0) + 360) % 360;
+  document.getElementById('hdg_big').textContent = Math.round(hdg) + '°';
+
+  // COMMAND (accetta COMMAND o CMD)
+  if (m.COMMAND)      cmd = ((parseFloat(m.COMMAND) || 0) + 360) % 360;
+  else if (m.CMD)     cmd = ((parseFloat(m.CMD)      || 0) + 360) % 360;
+
+  // ERROR (accetta ERROR o ERR)
+  if (m.ERROR)        err = parseInt(m.ERROR) || 0;
+  else if (m.ERR)     err = parseInt(m.ERR)   || 0;
+
+  // GPS/COG/SOG (accetta GPS_HEADING/GPS_SPEED o COG/SOG)
+  if (m.GPS_HEADING)  document.getElementById('cog_big').textContent = Math.round(parseFloat(m.GPS_HEADING)||0) + '°';
+  else if (m.COG)     document.getElementById('cog_big').textContent = Math.round(parseFloat(m.COG)||0) + '°';
+
+  if (m.GPS_SPEED) {
+    const sog = parseFloat(m.GPS_SPEED) || 0;
+    document.getElementById('sog_big').textContent = sog.toFixed(1) + ' kn';
+    const s = document.getElementById('sog'); if (s) s.textContent = sog.toFixed(1) + ' kn';
+  } else if (m.SOG) {
+    const sog = parseFloat(m.SOG) || 0;
+    document.getElementById('sog_big').textContent = sog.toFixed(1) + ' kn';
+    const s = document.getElementById('sog'); if (s) s.textContent = sog.toFixed(1) + ' kn';
+  }
+
+  // Se hai i dettagli HDG_C/F/E/A li lasci come sono qui sotto (ok)
+
+  paintHero();
+  drawRose();
 }
+
 function paintHero(){
   document.getElementById('cmd_big').textContent = (Math.round(cmd)+360)%360 + '°';
   document.getElementById('err_big').textContent = (err>0?'+':'') + err + '°';

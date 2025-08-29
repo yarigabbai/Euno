@@ -107,7 +107,7 @@ if (millis() - _lastChk > 3000) { // ogni 3s
 
 // --- Retry periodico AP → STA (se in fallback e hai credenziali) --- //
 static unsigned long _lastRetry = 0;
-if (mode == LINK_AP && millis() - _lastRetry > 30000) { // ogni 30s
+if (mode == LINK_AP && millis() - _lastRetry > 20000) { // ogni 30s
   _lastRetry = millis();
 
   const bool hasSTA1 = (cfg.sta1_ssid.length() && cfg.sta1_pass.length());
@@ -168,9 +168,17 @@ if (mode == LINK_AP && millis() - _lastRetry > 30000) { // ogni 30s
 
   // Fix compatibilità: la tua lib WebSocketsServer espone broadcastTXT(String&) (non-const);
   // usiamo l’overload con buffer per accettare const String& in sicurezza.
-  void sendWS(const String& msg){
-    if (wsReady) ws.broadcastTXT((const uint8_t*)msg.c_str(), msg.length());
-  }
+void sendWS(const String& msg){
+    if (!msg.length()) return;
+    String tmp = msg;
+    ws.broadcastTXT(tmp);                          // invio telemetria
+    ws.broadcastTXT(String("LOG:TX ") + tmp);      // <<< DEBUG: vedrai in console cosa stai inviando
+}
+
+
+
+
+
 
   // --------- CALLBACK da collegare dal tuo .ino ---------
   // 1) chiamata quando arriva una riga NMEA/PEUNO via UDP
@@ -192,6 +200,7 @@ private:
 
   // set 2.4 GHz, no power-save, massima potenza
 WiFi.mode(WIFI_AP_STA);
+
   WiFi.setSleep(false);
   esp_wifi_set_ps(WIFI_PS_NONE);
   esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);

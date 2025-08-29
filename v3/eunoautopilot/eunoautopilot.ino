@@ -301,6 +301,7 @@ void sendHeadingSource(int mode) {
   udp.write((const uint8_t*)msg.c_str(), msg.length());
   udp.endPacket();
   enow.sendLine(msg);
+   net.sendWS(msg);
   Serial.println("Inviato heading source -> " + msg);
 }
 
@@ -612,24 +613,40 @@ void readSensors() {
 
 // Ritorna l'heading da pubblicare in base al mode attivo
 int getHeadingByMode(){
-  int hdgC = getCorrectedHeading();                // COMPASS
-  int hdgF = (int)round(getFusedHeading());        // FUSION
-  updateExperimental(hdgF);
-  int hdgE = (int)round(getExperimentalHeading()); // EXPERIMENTAL
-  int hdgA = hdgC;
-  if (isAdvancedCalibrationComplete()){
-    compass.read();
-    float rawX = compass.getX(), rawY = compass.getY();
-    hdgA = applyAdvCalibration(rawX, rawY);        // ADV
-  }
+    // Ottieni tilt corrente
+    float pitch, roll;
+    sensors_event_t acc;
+    if (compass.getAccelEvent(acc)) {
+        pitch = atan2f(-acc.acceleration.x, sqrtf(acc.acceleration.y*acc.acceleration.y + 
+                                                acc.acceleration.z*acc.acceleration.z));
+        roll = atan2f(acc.acceleration.y, acc.acceleration.z);
+        pitch -= accPitchOffset;
+        roll -= accRollOffset;
+    }
+    
+    int hdgC = getCorrectedHeading(); // Ora già compensato
+    
+    int hdgF = (int)round(getFusedHeading());
+    updateExperimental(hdgF);
+    int hdgE = (int)round(getExperimentalHeading());
+    
+    int hdgA = hdgC;
+    if (isAdvancedCalibrationComplete()){
+        compass.read();
+        float mx = compass.getX(), my = compass.getY(), mz = compass.getZ();
+        // Applica tilt compensation anche all'ADV
+        float headingRad = compensateTilt(mx, my, mz, pitch, roll);
+        hdgA = headingRad * 180.0f / M_PI;
+        if (hdgA < 0) hdgA += 360;
+    }
 
-  switch(headingSourceMode){
-    case 0:  return hdgC;
-    case 1:  return hdgF;
-    case 2:  return hdgE;
-    case 3:  return hdgA;
-    default: return hdgF;
-  }
+    switch(headingSourceMode){
+        case 0:  return hdgC;
+        case 1:  return hdgF;
+        case 2:  return hdgE;
+        case 3:  return hdgA;
+        default: return hdgF;
+    }
 }
 
 // ### SETUP E LOOP ###
@@ -870,7 +887,19 @@ void loop() {
   if (calibrationMode) {
     performCalibration(millis());
   }
-
+// Nel loop principale, aggiungi:
+static unsigned long lastTiltDebug = 0;
+if (millis() - lastTiltDebug > 2000) {
+    lastTiltDebug = millis();
+    
+    float pitch, roll;
+    getTiltAngles(pitch, roll);
+    
+    Serial.printf("Tilt: Pitch=%.1f°, Roll=%.1f°\n", 
+                 pitch * 180.0/M_PI, roll * 180.0/M_PI);
+    Serial.printf("Offsets: Pitch=%.3f, Roll=%.3f rad\n", 
+                 accPitchOffset, accRollOffset);
+}
   // === TELEMETRIA $AUTOPILOT (WS + ESP-NOW + UDP HDT) =====================
   static unsigned long _lastTel = 0;
   if (millis() - _lastTel >= 200) {
@@ -918,6 +947,7 @@ String telem = String("$AUTOPILOT")
              + ",MOTOR="   + String(motorControllerState ? "ON" : "OFF");
 net.sendWS(telem);
 
+Serial.println("[DEBUG] sendWS: " + telem);
 
     // 6) NMEA UDP (HDT)
     String hdt = String("$HDT,") + String(hdgOut) + ",T";
