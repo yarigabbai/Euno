@@ -16,13 +16,26 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+
   header{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:#0f141c;position:sticky;top:0;z-index:10}
   h1{margin:0;font-size:16px;font-weight:600}
   .pill{font:12px/1 mono;background:#0e1622;color:var(--muted);padding:6px 8px;border:1px solid var(--border);border-radius:9px}
-  main{padding:14px;display:grid;gap:14px;grid-template-columns:1fr}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+
+  /* CONTENITORE: limita la larghezza della pagina (niente allargamenti) */
+  main{
+    padding:14px;
+    display:grid;
+    gap:14px;
+    grid-template-columns:1fr;
+    max-width:480px;           /* <— blocco anti-allargamento */
+    margin-inline:auto;
+    width:100%;
+  }
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;width:100%}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .sep{height:1px;background:var(--border);margin:12px 0}
+
   label{color:var(--muted);font-size:12px}
   input,select,button{border-radius:12px;border:1px solid var(--border);background:#0e1520;color:var(--fg);padding:12px 14px}
   button{cursor:pointer}
@@ -30,22 +43,34 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
   .good{background:rgba(46,204,113,.12)}
   .bad{background:rgba(255,92,92,.12)}
   .hint{color:var(--muted);font-size:12px}
-.val{font:clamp(24px,6vw,42px)/1.1 mono}
+
+  .val{font:clamp(24px,6vw,42px)/1.1 mono}
   .lbl{color:var(--muted);font-size:13px;margin-bottom:6px}
-.hero-grid{display:grid;.hero-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
-  gap:6px;            /* spazio dimezzato */
-}
--template-columns:repeat(5,1fr);gap:12px}
+
+  /* HERO pulita: niente regole rotte, gap ridotto */
+  .hero-grid{display:grid;gap:6px}
+  .hero-row2{display:grid;gap:6px;margin-top:6px}
+
   .btn-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
   .btn-lg{padding:18px 20px;font-size:22px;border-radius:16px;min-width:86px}
-  .stack{display:grid;gap:6px}
-  .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 10px;margin-top:8px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  /* CONSENTE ALLE COLONNE DI STRINGERSI (niente allargamenti) */
+  .stack{display:grid;gap:6px;min-width:0}
+
+  /* Griglie interne comprimibili */
+  .kv{display:grid;grid-template-columns:minmax(0,120px) minmax(0,1fr);gap:6px 10px;margin-top:8px}
+  .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+
   .w90{width:90px} .w120{width:120px}
+
+  /* Canvas sempre entro viewport */
   canvas{width:100%;max-width:380px;height:auto;aspect-ratio:1;border-radius:12px;border:1px solid var(--border);background:#0e141c;margin:auto}
+
+  /* Log: evita che stringhe lunghe allarghino la pagina */
+  #log{word-break:break-word;overflow-wrap:anywhere}
 </style>
+
+
 </head>
 <body>
 <header>
@@ -55,39 +80,54 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 
 <main>
   <!-- HERO -->
-  <section class="card">
-    <div class="hero-grid">
-      <div class="stack">
-        <div class="lbl">Heading</div>
-        <div class="val" id="hdg_big">—</div>
-      </div>
-      <div class="stack">
-        <div class="lbl">Command</div>
-        <div class="val" id="cmd_big">—</div>
-      </div>
-      <div class="stack">
-        <div class="lbl">Error</div>
-        <div class="val" id="err_big">—</div>
-      </div>
-      <div class="stack">
-        <div class="lbl">COG</div>
-        <div class="val" id="cog_big">—</div>
-      </div>
-      <div class="stack">
-        <div class="lbl">SOG</div>
-        <div class="val" id="sog_big">—</div>
-      </div>
+<section class="card">
+  <!-- Riga 1: 3 campi -->
+  <div class="hero-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">
+    <div class="stack">
+      <div class="lbl">Heading</div>
+      <div class="val" id="hdg_big">—</div>
     </div>
+    <div class="stack">
+      <div class="lbl">Command</div>
+      <div class="val" id="cmd_big">—</div>
+    </div>
+    <div class="stack">
+      <div class="lbl">Error</div>
+      <div class="val" id="err_big">—</div>
+    </div>
+  </div>
 
-    <div class="sep"></div>
-    <div class="btn-row">
-      <button class="btn-lg bad"  onclick="delta(-10)">−10</button>
-      <button class="btn-lg bad"  onclick="delta(-1)">−1</button>
-      <button class="btn-lg good" onclick="toggle()">ON/OFF</button>
-      <button class="btn-lg bad"  onclick="delta(+1)">+1</button>
-      <button class="btn-lg bad"  onclick="delta(+10)">+10</button>
+  <!-- Riga 2: 2 campi -->
+  <div class="hero-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:6px">
+    <div class="stack">
+      <div class="lbl">COG</div>
+      <div class="val" id="cog_big">—</div>
     </div>
-  </section>
+    <div class="stack">
+      <div class="lbl">SOG</div>
+      <div class="val" id="sog_big">—</div>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Riga 3: 2 tasti -->
+  <div class="btn-row" style="justify-content:center;gap:12px">
+    <button class="btn-lg bad" onclick="delta(-10)">−10</button>
+    <button class="btn-lg bad" onclick="delta(-1)">−1</button>
+  </div>
+
+  <!-- Riga 4: 2 tasti -->
+  <div class="btn-row" style="justify-content:center;gap:12px;margin-top:8px">
+    <button class="btn-lg bad" onclick="delta(+1)">+1</button>
+    <button class="btn-lg bad" onclick="delta(+10)">+10</button>
+  </div>
+
+  <!-- Riga 5: 1 tasto -->
+  <div class="btn-row" style="justify-content:center;gap:12px;margin-top:8px">
+    <button class="btn-lg good" onclick="toggle()">ON/OFF</button>
+  </div>
+</section>
 
 
   <!-- Bussola con due lancette: HDG (azzurra) e CMD (arancione) -->
