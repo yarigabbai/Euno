@@ -7,6 +7,13 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0b0f13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EUNO">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/icon-192.png">
+
 <title>EUNO Autopilot – Client</title>
 <style>
   :root{
@@ -341,5 +348,113 @@ function drawRose(){
 
 window.addEventListener('load', ()=>{ wsConnect(); drawRose(); });
 </script>
+<!-- === PANNELLO: Scansiona reti Wi-Fi (STA) === -->
+<section id="sta-scan-panel" style="margin:16px;padding:16px;border:1px solid #1c2433;border-radius:12px;background:#0b0f13;color:#e7f0ff">
+  <h3 style="margin:0 0 10px 0;font-weight:600">Scansiona reti Wi-Fi (STA)</h3>
+
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button id="netScanBtn" style="padding:8px 12px;border-radius:10px;border:1px solid #1c2433;background:#111722;cursor:pointer">
+      Scansiona reti
+    </button>
+    <span id="netScanStatus" style="opacity:.8"></span>
+  </div>
+
+  <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <label for="ssidSelect" style="opacity:.9">SSID trovati:</label>
+    <select id="ssidSelect" style="min-width:220px;padding:8px;border-radius:10px;border:1px solid #1c2433;background:#111722;color:#e7f0ff">
+      <option value="">(premi “Scansiona reti”)</option>
+    </select>
+
+    <button id="ssidUseBtn" style="padding:8px 12px;border-radius:10px;border:1px solid #1c2433;background:#53b2ff;color:#0b0f13;cursor:pointer">
+      Usa SSID selezionato
+    </button>
+    <span class="hint" style="opacity:.8">Questo copia l'SSID nel tuo campo SSID già esistente.</span>
+  </div>
+
+  <small style="display:block;margin-top:8px;opacity:.7">
+    Suggerimento: se l’hotspot è a 5 GHz, imposta 2.4 GHz. La pagina resta reattiva durante la scansione.
+  </small>
+</section>
+
+<script>
+(() => {
+  // Riferimenti agli elementi del nuovo pannello
+  const btnScan   = document.getElementById('netScanBtn');
+  const lblScan   = document.getElementById('netScanStatus');
+  const selSSID   = document.getElementById('ssidSelect');
+  const btnUse    = document.getElementById('ssidUseBtn');
+
+  // Troviamo il TUO campo SSID esistente (quello che usi già per salvare)
+  // Se nella tua pagina l'input SSID ha id diverso, cambia qui sotto 'ssid'.
+  const inputSSID = document.getElementById('ssid');
+
+  function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) }
+
+  // Polling asincrono: interroga /api/scan finché non sono pronti i risultati
+  async function pollScan(){
+    try{
+      const res = await fetch("/api/scan", {cache:"no-store"});
+      // 202 = "scansione in corso" → riproviamo tra 600ms
+      if (res.status === 202) {
+        if (lblScan) lblScan.textContent = "Scansione...";
+        setTimeout(pollScan, 600);
+        return;
+      }
+      if (!res.ok) throw new Error("HTTP "+res.status);
+
+      // 200 = risultati pronti
+      const list = await res.json();
+      // Ordina per potenza segnale (RSSI discendente) e deduplica SSID
+      list.sort((a,b)=>(b.rssi||-999)-(a.rssi||-999));
+      const seen = new Set(), uniq=[];
+      for (const ap of list) {
+        if (!ap || !ap.ssid) continue;
+        if (seen.has(ap.ssid)) continue;
+        seen.add(ap.ssid); uniq.push(ap);
+      }
+      if (!uniq.length){
+        if (selSSID) selSSID.innerHTML = `<option value="">(nessuna rete trovata)</option>`;
+        if (lblScan)  lblScan.textContent = "Nessuna rete trovata";
+      } else {
+        if (selSSID) selSSID.innerHTML = uniq.map(ap =>
+          `<option value="${escapeHtml(ap.ssid)}">${escapeHtml(ap.ssid)} (${ap.rssi} dBm)</option>`
+        ).join("");
+        if (lblScan)  lblScan.textContent = `Trovate ${uniq.length} reti`;
+      }
+    } catch(err){
+      console.error(err);
+      if (lblScan)  lblScan.textContent = "Errore scansione";
+      if (selSSID)  selSSID.innerHTML   = `<option value="">(errore)</option>`;
+    } finally {
+      if (btnScan) btnScan.disabled = false; // riabilita sempre il bottone
+    }
+  }
+
+  // Avvia la scansione (non blocca la pagina)
+  btnScan && btnScan.addEventListener('click', () => {
+    btnScan.disabled = true;
+    if (lblScan)  lblScan.textContent = "Avvio scansione...";
+    if (selSSID)  selSSID.innerHTML   = `<option value="">(scansione in corso)</option>`;
+    pollScan();
+  });
+
+  // Copia l'SSID selezionato nel TUO campo SSID (quello già usato dal tuo SAVE)
+  btnUse && btnUse.addEventListener('click', () => {
+    if (!inputSSID) { alert("Campo SSID non trovato nella pagina (id='ssid')."); return; }
+    const chosen = selSSID ? selSSID.value : "";
+    if (!chosen) { alert("Seleziona prima una rete."); return; }
+    inputSSID.value = chosen;
+    if (lblScan) lblScan.textContent = `SSID copiato: ${chosen}`;
+  });
+
+  // (Facoltativo) copia anche al cambio selezione, senza premere il bottone
+  selSSID && selSSID.addEventListener('change', () => {
+    if (!inputSSID) return;
+    inputSSID.value = selSSID.value || "";
+  });
+})();
+</script>
+
+
 </body>
 </html>)rawliteral";

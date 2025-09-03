@@ -19,7 +19,7 @@
 #include <Adafruit_ICM20948.h>
 #include <Adafruit_Sensor.h>
 #include "index_html.h"   // contiene: const char INDEX_HTML[] PROGMEM = R"rawliteral(... )rawliteral";
-
+#include <ESPmDNS.h>
 #include <TinyGPSPlus.h>
 #include <WiFiUdp.h>
 #include <WiFi.h>
@@ -48,11 +48,10 @@ int  applyAdvCalibration(float x, float y);  // definita in fondo
 #include "icm_compass.h"
 
 #include "euno_network.h"   // STA/AP + mDNS + HTTP + WS + UDP + EEPROM(OP)
-#include "espnow_link.h"    // ESP-NOW verso TFT (opzionale)
 #include "nmea_client.h"    // parser NMEA + $PEUNO,CMD
 
 EunoNetwork net;
-EunoEspNow  enow;
+
 EunoCmdAPI  api;
 
 // Parser unico per linee in ingresso (UDP/WS/ESP-NOW)
@@ -89,6 +88,24 @@ void writeParameterToEEPROM(int addr, int value) {
   EEPROM.write(addr,     value & 0xFF);
   EEPROM.write(addr + 1, (value >> 8) & 0xFF);
   EEPROM.commit();
+}
+// Legge 16 bit e applica fallback + clamp in caso di EEPROM non inizializzata (0xFFFF) o fuori-range
+int readParamOrDefault(int addr, int defVal, int minV, int maxV) {
+  int low  = EEPROM.read(addr);
+  int high = EEPROM.read(addr + 1);
+  int v = (high << 8) | low;
+  if (v == 0xFFFF) return defVal;   // EEPROM “vuota” o non scritta
+  if (v < minV)   return defVal;    // fuori range → torna default (o puoi scegliere minV)
+  if (v > maxV)   return maxV;      // clamp superiore
+  return v;
+}
+
+// Legge headingOffset (uint16) con fallback a 0 se 0xFFFF
+int readHeadingOffsetOr0() {
+  int low  = EEPROM.read(6);
+  int high = EEPROM.read(7);
+  int v = (high << 8) | low;
+  return (v == 0xFFFF) ? 0 : v;
 }
 
 // ### VARIABILI OTA CLIENT ###
@@ -262,6 +279,9 @@ int direzione_attuatore = 0;
 // ### WIFI/UDP ###
 void setupWiFi(const char* ssid, const char* password) {
   WiFi.begin(ssid, password);
+  WiFi.setAutoReconnect(true);
+WiFi.persistent(true);
+
   while (WiFi.status() != WL_CONNECTED) delay(500);
   debugLog("\nConnected to WiFi");
   udp.begin(serverPort);
@@ -300,7 +320,7 @@ void sendHeadingSource(int mode) {
   udp.beginPacket(serverIP, serverPort);
   udp.write((const uint8_t*)msg.c_str(), msg.length());
   udp.endPacket();
-  enow.sendLine(msg);
+  // enow.sendLine(msg);
    net.sendWS(msg);
   Serial.println("Inviato heading source -> " + msg);
 }
@@ -333,7 +353,7 @@ void updateConfig(String command) {
   udp.beginPacket(serverIP, serverPort);
   udp.write((const uint8_t*)confirmMsg.c_str(), confirmMsg.length());
   udp.endPacket();
-  enow.sendLine(confirmMsg);
+  //enow.sendLine(confirmMsg);
 }
 
 void extendMotor(int speed) { analogWrite(3, speed);  analogWrite(46, 0); }
@@ -451,10 +471,10 @@ if (command.startsWith("$PEUNO,CMD,")) {
     if (motorControllerState) {
       headingCommand = currentHeading;
       udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:ON");  udp.endPacket();
-      enow.sendLine("MOTOR:ON");
+//enow.sendLine("MOTOR:ON");
     } else {
       udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:OFF"); udp.endPacket();
-      enow.sendLine("MOTOR:OFF");
+     // enow.sendLine("MOTOR:OFF");
     }
   }
   else if (command == "ACTION:CAL") {
@@ -652,35 +672,36 @@ int getHeadingByMode(){
 // ### SETUP E LOOP ###
 void setup() {
   Serial.begin(115200);
-  EEPROM.begin(2048);
-  loadAdvCalibrationFromEEPROM();
+ EEPROM.begin(2048);
+loadAdvCalibrationFromEEPROM();
 
-  Serial.printf("EEPROM 0..5 →  %02X %02X  %02X %02X  %02X %02X\n",
-                EEPROM.read(0), EEPROM.read(1),
-                EEPROM.read(2), EEPROM.read(3),
-                EEPROM.read(4), EEPROM.read(5));
+// 1) Leggi offset SIGNED PRIMA di stampare
+EEPROM.get<int16_t>(0, compassOffsetX);
+EEPROM.get<int16_t>(2, compassOffsetY);
+EEPROM.get<int16_t>(4, compassOffsetZ);
 
-  Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
-                compassOffsetX, compassOffsetY, compassOffsetZ);
+// 2) Leggi headingOffset con fallback (0 se 0xFFFF)
+headingOffset = readHeadingOffsetOr0();
 
-  // Offset software bussola (C-GPS)
-  headingOffset = EEPROM.read(6) | (EEPROM.read(7) << 8);
+// 3) Ora stampa: prima i raw bytes, poi i valori letti
+Serial.printf("EEPROM 0..5 →  %02X %02X  %02X %02X  %02X %02X\n",
+              EEPROM.read(0), EEPROM.read(1),
+              EEPROM.read(2), EEPROM.read(3),
+              EEPROM.read(4), EEPROM.read(5));
+Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
+              compassOffsetX, compassOffsetY, compassOffsetZ);
+Serial.printf("HeadingOffset (deg) → %d\n", headingOffset);
 
-  // Leggi offset SIGNED per X/Y/Z
-  EEPROM.get<int16_t>(0, compassOffsetX);
-  EEPROM.get<int16_t>(2, compassOffsetY);
-  EEPROM.get<int16_t>(4, compassOffsetZ);
-  Serial.printf("Offset letti  →  X=%d  Y=%d  Z=%d\n",
-                compassOffsetX, compassOffsetY, compassOffsetZ);
-
-  // Parametri da EEPROM
-  V_min = readParameterFromEEPROM(10);
-  V_max = readParameterFromEEPROM(12);
-  E_min = readParameterFromEEPROM(14);
-  E_max = readParameterFromEEPROM(16);
-  E_tol = readParameterFromEEPROM(18);
-  T_pause = readParameterFromEEPROM(24);
-  T_risposta = readParameterFromEEPROM(26);
+// Default/range: adatta se usi altri limiti nella UI
+V_min      = readParamOrDefault(10, /*def*/100, /*min*/0,   /*max*/255);
+V_max      = readParamOrDefault(12, /*def*/255, /*min*/0,   /*max*/255);
+E_min      = readParamOrDefault(14, /*def*/5,   /*min*/0,   /*max*/180);
+E_max      = readParamOrDefault(16, /*def*/40,  /*min*/0,   /*max*/180);
+E_tol      = readParamOrDefault(18, /*def*/1,   /*min*/0,   /*max*/20);
+T_pause    = readParamOrDefault(24, /*def*/0,   /*min*/0,   /*max*/9);
+T_risposta = readParamOrDefault(26, /*def*/10,  /*min*/3,   /*max*/12);
+Serial.printf("[PARAM] Vmin=%d Vmax=%d Emin=%d Emax=%d Etol=%d Tpause=%d Trisp=%d\n",
+              V_min, V_max, E_min, E_max, E_tol, T_pause, T_risposta);
 
   // I2C bussola
   Wire.begin(8, 9);
@@ -695,7 +716,12 @@ void setup() {
 
   // GPS
   Serial2.begin(9600, SERIAL_8N1, 16, 17);
-
+//dns
+if (MDNS.begin("euno-client")) {
+  Serial.println("mDNS responder started: http://euno-client.local");
+} else {
+  Serial.println("Error setting up MDNS responder!");
+}
   // Heading iniziale
   compass.read();
   int headingCompass = getCorrectedHeading();
@@ -710,6 +736,8 @@ void setup() {
   net.cfg.sta1_pass = "";
 
   net.begin();
+
+
   net.onUdpLine   = [](const String& s){ EUNO_PARSE(s); };
   net.onUiCommand = [](const String& s){
     Serial.println("[WS RX] " + s);   // <--- debug: stampa i comandi che arrivano dal TFT via WS
@@ -719,17 +747,17 @@ void setup() {
 
 
 
-  // ESP-NOW opzionale verso TFT
-  enow.begin();
-//enow.clearPairing();
+//   // ESP-NOW opzionale verso TFT
+//   enow.begin();
+// //enow.clearPairing();
 
-  // Comandi dal TFT via ESP-NOW → parser
-  enow.onLine = [](const String& s){
-    parseNMEAClientLine(s, eunoCmdApi);
-  };
+//   // Comandi dal TFT via ESP-NOW → parser
+//   enow.onLine = [](const String& s){
+//     parseNMEAClientLine(s, eunoCmdApi);
+//   };
 
-  enow.startAutoPairing("EUNO");
-  enow.addBroadcastPeer();
+//   enow.startAutoPairing("EUNO");
+//   enow.addBroadcastPeer();
 
   // Collega callback API
   api.onDelta            = [](int v){ api_cmdDelta_internal(v); };
@@ -745,7 +773,9 @@ void setup() {
 void loop() {
   // Servizi di rete non bloccanti
   net.loop();
-  enow.loop();
+  // enow.loop();
+
+net.loop();
 
   unsigned long currentMillis = millis();
 

@@ -7,24 +7,30 @@
 #include <WiFiUdp.h>
 #include <Update.h>
 #include <functional>
-#include <esp_wifi.h>   // per banda/power (ESP32-S3)
+#include <esp_wifi.h>
+#include <EEPROM.h>
+#include "manifest_json.h"
+#include "icon_192_png.h"
 
 // ===================== CONFIG RETE =====================
 struct EunoNetConfig {
-  // Priorità STA: 1) EUNOAP/password  2) credenziali OpenPlotter da EEPROM
+  // STA default (di fabbrica)
   String sta1_ssid = "EUNOAP";
   String sta1_pass = "password";
-  String sta2_ssid = "";      // riempita da UI -> EEPROM
-  String sta2_pass = "";      // riempita da UI -> EEPROM
+  // STA da utente (EEPROM, impostate dalla WebApp)
+  String sta2_ssid = "";
+  String sta2_pass = "";
 
+  // AP sempre attivo
   String ap_ssid  = "EunoAutopilot";
   String ap_pass  = "password";
 
-  uint16_t udp_in_port  = 10110; // NMEA IN (OP/PC -> client)
-  uint16_t udp_out_port = 10110; // NMEA OUT (client -> OP/PC)
+  // UDP NMEA
+  uint16_t udp_in_port  = 10110;
+  uint16_t udp_out_port = 10110;
 };
 
-enum EunoLinkMode { LINK_STA, LINK_AP };
+enum EunoLinkMode { LINK_STA, LINK_AP }; // AP è sempre ON; LINK_* riflette solo lo stato della STA
 
 // ===================== CLASSE NETWORK =====================
 class EunoNetwork {
@@ -36,35 +42,58 @@ public:
   WebSocketsServer  ws{81};
   WiFiUDP           udp;
 
-  IPAddress peerOP;       // IP OP/PC per OUT (riempito quando riceviamo)
-  IPAddress lastWSIP;     // IP ultimo web client connesso (UI)
+  IPAddress peerOP;
+  IPAddress lastWSIP;
   bool wsReady = false;
 
-  // stato
-  String ipStr;
+  String ipStr;                    // mostra IP corrente: STA se connessa, altrimenti AP
   String mdnsName = "euno-client";
   unsigned long lastHello = 0;
+
+  // EEPROM (semplice layout: [lenSSID][ssid...][lenPASS][pass...])
+  static const int   EE_SIZE = 2048;
+  static const int   EE_BASE = 512;
+  static const uint8_t SSID_MAX = 32;
+  static const uint8_t PASS_MAX = 64;
 
   // --------- INIT ---------
   void begin(){
     Serial.begin(115200);
     delay(50);
 
-    // tenta STA 1 -> STA 2 -> fallback AP
-    if (trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) {
-      mode = LINK_STA;
-    } else if (cfg.sta2_ssid.length() && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) {
-      mode = LINK_STA;
+    // EEPROM: carica credenziali utente (sta2)
+    EEPROM.begin(EE_SIZE);
+    String eepSsid, eepPass;
+    if (loadOpenPlotterCreds(eepSsid, eepPass)) {
+      cfg.sta2_ssid = eepSsid;
+      cfg.sta2_pass = eepPass;
+      Serial.println("[NET] EEPROM creds: " + cfg.sta2_ssid);
     } else {
-      beginAP();
+      Serial.println("[NET] No EEPROM creds, only defaults");
     }
 
-    // mDNS
-    if (MDNS.begin(mdnsName.c_str())) {
-      Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
-    }
+    // 1) AP SEMPRE ATTIVO (UI sempre raggiungibile)
+    beginAP(); // non spegne mai la STA, usa WIFI_AP_STA
+    String apIp = WiFi.softAPIP().toString();
+    ipStr = apIp; // finché non si collega la STA
 
-    // UDP
+    // 2) STA: tenta prima default poi EEPROM (AP resta ON)
+  mountHTTP();
+  ws.begin();
+  ws.onEvent([this](uint8_t num, WStype_t type, uint8_t * payload, size_t len){
+    onWsEvent(num, type, payload, len);
+  });
+  udp.begin(cfg.udp_in_port);
+  Serial.printf("[NET] UDP IN @ %u\n", cfg.udp_in_port);
+    bool staOk = false;
+  if (trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) staOk = true;
+  else if (cfg.sta2_ssid.length() && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) staOk = true;
+  mode = staOk ? LINK_STA : LINK_AP;
+
+    // mDNS (valido in AP e STA; su hotspot telefono mDNS può non passare)
+    initMDNS();
+
+    // UDP IN (ascolta su tutte le interfacce)
     udp.begin(cfg.udp_in_port);
     Serial.printf("[NET] UDP IN @ %u\n", cfg.udp_in_port);
 
@@ -82,235 +111,293 @@ public:
   void loop(){
     server.handleClient();
     ws.loop();
-// --- Watchdog STA: se perdi il link, prova a rientrare --- //
-static unsigned long _lastChk = 0;
-if (millis() - _lastChk > 3000) { // ogni 3s
-  _lastChk = millis();
-  if (mode == LINK_STA) {
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("[NET] STA lost → reconnect...");
-      // tenta reconnect rapido
-      WiFi.reconnect();
-      unsigned long t0 = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 3000) { delay(100); }
-      if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[NET] reconnect fail");
-        // opzionale: passa in AP se serve subito UI
-        // beginAP();   // ← se vuoi forzare AP al volo, scommenta
-      } else {
-        ipStr = WiFi.localIP().toString();
-        Serial.println("[NET] STA reconnected @ " + ipStr);
-      }
-    }
-  }
-}
 
-// --- Retry periodico AP → STA (se in fallback e hai credenziali) --- //
-static unsigned long _lastRetry = 0;
-if (mode == LINK_AP && millis() - _lastRetry > 20000) { // ogni 30s
-  _lastRetry = millis();
+   // Riconnessione STA (non bloccante)
+static unsigned long lastChk = 0;
+static unsigned long lastKick = 0;
+static bool kickInFlight = false;
 
-  const bool hasSTA1 = (cfg.sta1_ssid.length() && cfg.sta1_pass.length());
-  const bool hasSTA2 = (cfg.sta2_ssid.length() && cfg.sta2_pass.length());
+if (millis() - lastChk > 800) {
+  lastChk = millis();
 
-  if (hasSTA1 || hasSTA2) {
-    Serial.println("[NET] AP→STA retry...");
-    bool ok = false;
-
-    if (hasSTA1 && trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) {
-      ok = true;
-    } else if (hasSTA2 && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) {
-      ok = true;
-    }
-
-    if (ok) {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (mode != LINK_STA) {
       mode = LINK_STA;
-      // aggiorna IP e (ri)registra mDNS per sicurezza
       ipStr = WiFi.localIP().toString();
-      MDNS.end();
-      if (MDNS.begin(mdnsName.c_str())) {
-        Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
-      }
-      Serial.println("[NET] Switched to STA @ " + ipStr);
-      // Nota: server HTTP e WS restano attivi; non serve riavviarli
+      initMDNS();
+      Serial.println("[NET] STA up @ " + ipStr);
     } else {
-      Serial.println("[NET] AP→STA retry failed, remain AP");
+      String cur = WiFi.localIP().toString();
+      if (ipStr != cur) ipStr = cur;
+    }
+    kickInFlight = false;
+  } else {
+    mode = LINK_AP; // AP resta comunque attivo
+    if (!kickInFlight && millis() - lastKick > 10000) {
+      WiFi.reconnect();              // lancia il tentativo e torna subito
+      lastKick = millis();
+      kickInFlight = true;
+      Serial.println("[NET] STA reconnect kick");
+    }
+    if (kickInFlight && millis() - lastKick > 5000) {
+      kickInFlight = false;          // chiudi il tentativo corrente, senza bloccare
     }
   }
 }
 
 
-    // Hello periodico verso console web
-    if (millis() - lastHello > 1000 && wsReady) {
-      ws.broadcastTXT(String("LOG:") + "Net=" + (mode==LINK_STA?"STA":"AP") + " IP=" + ipStr);
+    // Hello periodico su WS (utile per mostrare IP e stato)
+    if (millis() - lastHello > 2500 && wsReady) {
+      String logMsg = String("LOG:") + "Net=" + (mode==LINK_STA?"STA":"AP") + " IP=" + ipStr;
+      ws.broadcastTXT(logMsg); // la lib vuole String non-const
       lastHello = millis();
     }
 
-    // UDP IN (NMEA / PEUNO)
+    // UDP IN
     int p = udp.parsePacket();
     if (p > 0){
       char buf[512];
       int n = udp.read(buf, sizeof(buf) - 1);
       if (n < 0) n = 0;
       buf[n] = 0;
-      peerOP = udp.remoteIP(); // memorizza chi ci parla
+      peerOP = udp.remoteIP();
       onUdpLine(String(buf));
     }
   }
 
   // --------- INVII ---------
-  void sendUDP(const String& line){           // verso OP/PC
+  void sendUDP(const String& line){
     if (peerOP) udp.beginPacket(peerOP, cfg.udp_out_port);
     else        udp.beginPacket(IPAddress(255,255,255,255), cfg.udp_out_port);
     udp.print(line);
     udp.endPacket();
   }
 
-  // Fix compatibilità: la tua lib WebSocketsServer espone broadcastTXT(String&) (non-const);
-  // usiamo l’overload con buffer per accettare const String& in sicurezza.
-void sendWS(const String& msg){
+  void sendWS(const String& msg){
     if (!msg.length()) return;
     String tmp = msg;
-    ws.broadcastTXT(tmp);                          // invio telemetria
-    ws.broadcastTXT(String("LOG:TX ") + tmp);      // <<< DEBUG: vedrai in console cosa stai inviando
-}
+    ws.broadcastTXT(tmp);
+  }
 
-
-
-
-
-
-  // --------- CALLBACK da collegare dal tuo .ino ---------
-  // 1) chiamata quando arriva una riga NMEA/PEUNO via UDP
+  // --------- CALLBACK ---------
   std::function<void(const String&)> onUdpLine = [](const String&){};
-  // 2) chiamata quando arriva un comando dalla UI WebSocket
   std::function<void(const String&)> onUiCommand = [](const String&){};
-  // 3) per fornire telemetria alla UI (chiama sendWS(...) dal tuo loop)
 
 private:
-  bool trySTA(const char* ssid, const char* pass){
-  if (!ssid || !ssid[0]) return false;
-
-  // ripulisci stato Wi‑Fi e DHCP
-  WiFi.mode(WIFI_OFF);
-  delay(50);
-  WiFi.persistent(false);
-  WiFi.disconnect(true, true);
-  delay(50);
-
-  // set 2.4 GHz, no power-save, massima potenza
-WiFi.mode(WIFI_AP_STA);
-
-  WiFi.setSleep(false);
-  esp_wifi_set_ps(WIFI_PS_NONE);
-  esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);   // massima disponibile
-
-  // reset DHCP, hostname utile
-  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
-  WiFi.setHostname(mdnsName.c_str());
-
-  Serial.printf("[NET] Try STA → %s ...\n", ssid);
-  WiFi.begin(ssid, pass);
-
-  // attesa estesa con dots (15s), poi un ultimo “kick”
-  unsigned long t0=millis();
-  while (WiFi.status()!=WL_CONNECTED && millis()-t0 < 15000){
-    delay(200); Serial.print(".");
-  }
-  if (WiFi.status()!=WL_CONNECTED){
-    // un tentativo extra con disconnect/riconnessione rapida
-    Serial.print(" kick");
-    WiFi.disconnect();
-    delay(200);
-    WiFi.begin(ssid, pass);
-    t0 = millis();
-    while (WiFi.status()!=WL_CONNECTED && millis()-t0 < 5000){
-      delay(200); Serial.print(".");
-    }
-  }
-
-  if (WiFi.status()==WL_CONNECTED){
-    ipStr = WiFi.localIP().toString();
-    Serial.println("\n[NET] STA OK @ " + ipStr);
-    return true;
-  }
-  Serial.println("\n[NET] STA FAIL");
-  return false;
-}
-
-
+  // ===== AP SEMPRE ATTIVO =====
   void beginAP(){
-    WiFi.persistent(false);
-WiFi.disconnect(true, true);
-WiFi.setSleep(false);
-esp_wifi_set_ps(WIFI_PS_NONE);
-delay(50);
+    // Manteniamo sempre AP+STA
+    WiFi.mode(WIFI_AP_STA);
 
-// hostname utile per DHCP/mDNS
-WiFi.setHostname(mdnsName.c_str());
+    // Evita power save
+    WiFi.setSleep(false);
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    delay(50);
 
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(cfg.ap_ssid.c_str(), cfg.ap_pass.c_str());
-    mode  = LINK_AP;
-    ipStr = WiFi.softAPIP().toString();
-    Serial.println("[NET] AP @ " + ipStr + " SSID=" + cfg.ap_ssid);
+    // AP config
+    WiFi.softAPConfig(IPAddress(192, 168, 4, 1),
+                      IPAddress(192, 168, 4, 1),
+                      IPAddress(255, 255, 255, 0));
+    WiFi.softAP(cfg.ap_ssid.c_str(), cfg.ap_pass.c_str(), 1, 0, 4);
+
+    Serial.println("[NET] AP ON  @ " + WiFi.softAPIP().toString() + " SSID=" + cfg.ap_ssid);
   }
 
-  void mountHTTP(){
-  // HTML in chiaro dal tuo index_html.h
-  extern const char INDEX_HTML[] PROGMEM;
+  // ===== STA: CONNESSIONE CON AP ATTIVO =====
+  bool trySTA(const char* ssid, const char* pass){
+    if (!ssid || !ssid[0]) return false;
 
-  // Root: UI
-  server.on("/", HTTP_GET, [this](){
-    server.send_P(200, "text/html", INDEX_HTML);
-  });
+    // Non spegnere l'AP: restiamo in WIFI_AP_STA
+    WiFi.mode(WIFI_AP_STA);
+    delay(50);
 
-  // Ping diagnostico (per capire se il server risponde)
-  server.on("/ping", HTTP_GET, [this](){
-    server.send(200, "text/plain", "pong");
-  });
+    // Config STA
+    WiFi.persistent(false);          // non scrivere flash automaticamente
+    WiFi.setAutoReconnect(true);
+    WiFi.setSleep(false);
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
 
-  // API Web: salvataggio credenziali OP
-  server.on("/api/net", HTTP_POST, [this](){
-    if (!server.hasArg("ssid") || !server.hasArg("pass")){
-      server.send(400, "text/plain", "Missing ssid/pass"); return;
+    WiFi.setHostname(mdnsName.c_str());
+
+    Serial.printf("[NET] Connecting STA → %s...\n", ssid);
+    WiFi.begin(ssid, pass);
+
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+      delay(300);
+      Serial.print(".");
     }
-    String s = server.arg("ssid"), p = server.arg("pass");
-    saveOpenPlotterCreds(s, p);
-    server.send(200, "text/plain", "OK, riavvio in STA");
-    delay(300);
-    ESP.restart();
-  });
 
-  // 404: logga cosa chiede il browser (utile se va su https o su /qualcosa)
-  server.onNotFound([this](){
-    String path = server.uri();
-    Serial.println(String("[HTTP] 404: ")+path);
-    server.send(404, "text/plain", "404 " + path);
-  });
+    if (WiFi.status() == WL_CONNECTED) {
+      ipStr = WiFi.localIP().toString();
+      Serial.println("\n[NET] STA Connected @ " + ipStr);
+      return true;
+    }
 
-  server.begin();
-  Serial.println("[NET] HTTP server started");
-}
+    Serial.println("\n[NET] STA Connection Failed");
+    return false;
+  }
+
+  // ===== mDNS =====
+  void initMDNS() {
+    MDNS.end();
+    delay(50);
+
+    if (MDNS.begin(mdnsName.c_str())) {
+      MDNS.addService("http", "tcp", 80);
+      MDNS.addService("ws",   "tcp", 81);
+      Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
+    } else {
+      Serial.println("[NET] mDNS Error!");
+    }
+  }
+
+  // ===== HTTP/WS =====
+  void mountHTTP(){
+    // UI principale
+    extern const char INDEX_HTML[] PROGMEM;
+    server.on("/", HTTP_GET, [this](){
+      server.send_P(200, "text/html", INDEX_HTML);
+    });
+
+    // Icona
+    extern const uint8_t ICON_192_PNG[] PROGMEM;
+    extern const size_t ICON_192_PNG_LEN;
+    server.on("/icon-192.png", HTTP_GET, [this](){
+      server.sendHeader("Content-Type", "image/png");
+      server.sendHeader("Content-Length", String(ICON_192_PNG_LEN));
+      server.send(200);
+      server.sendContent_P((const char*)ICON_192_PNG, ICON_192_PNG_LEN);
+    });
+
+    // Manifest PWA
+    extern const char MANIFEST_JSON[] PROGMEM;
+    server.on("/manifest.json", HTTP_GET, [this](){
+      server.send_P(200, "application/json", MANIFEST_JSON);
+    });
+
+    // Ping
+    server.on("/ping", HTTP_GET, [this](){
+      server.send(200, "text/plain", "pong");
+    });
+
+    // Salva SSID/PASS (EEPROM) e riavvia per applicare
+    server.on("/api/net", HTTP_POST, [this](){
+      if (!server.hasArg("ssid") || !server.hasArg("pass")){
+        server.send(400, "text/plain", "Missing ssid/pass"); return;
+      }
+      String s = server.arg("ssid"), p = server.arg("pass");
+      saveOpenPlotterCreds(s, p);
+      server.send(200, "text/plain", "OK, rebooting STA");
+      delay(300);
+      ESP.restart();
+    });
+
+    // Scan reti Wi-Fi (STA) — async/polling
+// GET /api/scan:
+//  - 202 {"status":"scanning"}  → in corso
+//  - 200 [ {ssid,rssi,enc}, ... ] → pronto
+server.on("/api/scan", HTTP_GET, [this](){
+  int st = WiFi.scanComplete();
+  if (st == WIFI_SCAN_RUNNING) {
+    server.send(202, "application/json", "{\"status\":\"scanning\"}");
+    return;
+  }
+  if (st >= 0) {
+    String json = "[";
+    for (int i = 0; i < st; ++i) {
+      if (i) json += ",";
+      String ssid = WiFi.SSID(i);
+      ssid.replace("\\","\\\\"); ssid.replace("\"","\\\"");
+      json += "{\"ssid\":\""+ssid+"\",\"rssi\":"+String(WiFi.RSSI(i))+",\"enc\":"+String((int)WiFi.encryptionType(i))+"}";
+    }
+    json += "]";
+    WiFi.scanDelete();
+    server.send(200, "application/json", json);
+    return;
+  }
+  // avvia ora (non blocca)
+  WiFi.scanNetworks(true, true);
+  server.send(202, "application/json", "{\"status\":\"started\"}");
+});
+
+    // 404
+    server.onNotFound([this](){
+      String path = server.uri();
+      Serial.println(String("[HTTP] 404: ")+path);
+      server.send(404, "text/plain", "404 " + path);
+    });
+
+    server.begin();
+    Serial.println("[NET] HTTP server started");
+  }
 
   void onWsEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t len){
     if (type == WStype_CONNECTED){
       wsReady  = true;
       lastWSIP = ws.remoteIP(num);
-      ws.sendTXT(num, "LOG:UI connected");
+      String hello = "LOG:UI connected";
+      ws.sendTXT(num, hello);
       return;
     }
     if (type == WStype_TEXT){
       String s((char*)payload, len);
-      // accettiamo direttamente frasi $PEUNO,CMD,... dalla UI
       onUiCommand(s);
     }
   }
 
-  // EEPROM: salvataggio credenziali OpenPlotter (implementata nel .cpp)
-  void saveOpenPlotterCreds(const String& ssid, const String& pass);
+  // ===== EEPROM: salva/carica credenziali STA utente =====
+      public:
+
+  void saveOpenPlotterCreds(const String& ssid, const String& pass){
+    String S = ssid; if (S.length() > SSID_MAX) S.remove(SSID_MAX);
+    String P = pass; if (P.length() > PASS_MAX) P.remove(PASS_MAX);
+
+    int pos = EE_BASE;
+    
+    EEPROM.write(pos++, (uint8_t)S.length());
+    for (size_t i=0; i<S.length(); ++i) EEPROM.write(pos++, S[i]);
+
+    EEPROM.write(pos++, (uint8_t)P.length());
+    for (size_t i=0; i<P.length(); ++i) EEPROM.write(pos++, P[i]);
+
+    EEPROM.commit();
+    Serial.println("[NET] STA creds saved to EEPROM");
+  }
+
+  bool loadOpenPlotterCreds(String& ssidOut, String& passOut){
+    int pos = EE_BASE;
+    uint8_t l1 = EEPROM.read(pos++);
+    if (l1 == 0xFF || l1 == 0 || l1 > SSID_MAX) return false;
+    char s1[SSID_MAX+1];
+    for (uint8_t i=0;i<l1;i++) s1[i] = EEPROM.read(pos++);
+    s1[l1] = 0;
+
+    uint8_t l2 = EEPROM.read(pos++);
+    if (l2 == 0xFF || l2 > PASS_MAX) return false;
+    char s2[PASS_MAX+1];
+    for (uint8_t i=0;i<l2;i++) s2[i] = EEPROM.read(pos++);
+    s2[l2] = 0;
+
+    ssidOut = String(s1);
+    passOut = String(s2);
+    return ssidOut.length()>0;
+  }
 };
 
-// ============= Dichiarazione globale helper (implementata nel .cpp) =============
-bool EUNO_LOAD_OP_CREDS(EunoNetwork& net);
+// ============================================================================
+// Helper opzionale: carica in cfg.sta2 le credenziali EEPROM
+// ============================================================================
+inline bool EUNO_LOAD_OP_CREDS(EunoNetwork& net){
+  String s, p;
+  if (net.loadOpenPlotterCreds(s, p)) {
+    net.cfg.sta2_ssid = s;
+    net.cfg.sta2_pass = p;
+    Serial.println("[NET] Loaded STA2 from EEPROM: " + s);
+    return true;
+  }
+  Serial.println("[NET] No STA2 in EEPROM");
+  return false;
+}

@@ -11,17 +11,17 @@
 // ==================================================
 // Dai tuoi dump, l’asse Y NON va invertito: rimettiamo +1.
 #define MAG_INV_X   (+1)
-#define MAG_INV_Y   (-1)   // <— cambiato da -1 a +1
+#define MAG_INV_Y   (+1)   
 #define MAG_INV_Z   (+1)
 
 // Se in futuro noti accelerometro/gyro “girati” nel case, regoli qui:
 #define ACC_INV_X   (+1)
-#define ACC_INV_Y   (-1)
+#define ACC_INV_Y   (+1)
 #define ACC_INV_Z   (+1)
 
-#define GYR_INV_X   (-1)
+#define GYR_INV_X   (+1)
 #define GYR_INV_Y   (+1)
-#define GYR_INV_Z   (-1)
+#define GYR_INV_Z   (+1)
 
 // ==================================================
 
