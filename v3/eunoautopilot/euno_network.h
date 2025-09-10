@@ -106,38 +106,46 @@ void begin(){
     server.handleClient();
     ws.loop();
 
-   // Riconnessione STA (non bloccante)
-static unsigned long lastChk = 0;
+// Riconnessione STA (non bloccante, niente finestra "kickInFlight")
+static unsigned long lastChk  = 0;
 static unsigned long lastKick = 0;
-static bool kickInFlight = false;
+static wl_status_t   prevSt   = WL_IDLE_STATUS;
 
 if (millis() - lastChk > 800) {
   lastChk = millis();
 
-  if (WiFi.status() == WL_CONNECTED) {
-    if (mode != LINK_STA) {
-      mode = LINK_STA;
-      ipStr = WiFi.localIP().toString();
-      initMDNS();
-      Serial.println("[NET] STA up @ " + ipStr);
+  wl_status_t st = WiFi.status();
+
+  // Aggiorna stato (edge)
+  if (st != prevSt) {
+    prevSt = st;
+    if (st == WL_CONNECTED) {
+      if (mode != LINK_STA) {
+        mode = LINK_STA;
+        ipStr = WiFi.localIP().toString();
+        initMDNS();
+        Serial.println("[NET] STA up @ " + ipStr);
+      } else {
+        String cur = WiFi.localIP().toString();
+        if (ipStr != cur) ipStr = cur;
+      }
     } else {
-      String cur = WiFi.localIP().toString();
-      if (ipStr != cur) ipStr = cur;
+      mode = LINK_AP;                 // AP resta sempre ON
+      ipStr = WiFi.softAPIP().toString();
+      Serial.println("[NET] STA down → AP view " + ipStr);
     }
-    kickInFlight = false;
-  } else {
-    mode = LINK_AP; // AP resta comunque attivo
-    if (!kickInFlight && millis() - lastKick > 10000) {
-      WiFi.reconnect();              // lancia il tentativo e torna subito
+  }
+
+  if (st != WL_CONNECTED) {
+    // Throttle duro: mai più spesso di 30 s (stop "tic" ogni 10 s)
+    if (millis() - lastKick > 30000) {
+      WiFi.reconnect();               // fire-and-forget
       lastKick = millis();
-      kickInFlight = true;
-      Serial.println("[NET] STA reconnect kick");
-    }
-    if (kickInFlight && millis() - lastKick > 5000) {
-      kickInFlight = false;          // chiudi il tentativo corrente, senza bloccare
+      Serial.println("[NET] STA reconnect kick (30s throttle)");
     }
   }
 }
+
 
 
     // Hello periodico su WS (utile per mostrare IP e stato)
@@ -198,41 +206,27 @@ private:
   }
 
   // ===== STA: CONNESSIONE CON AP ATTIVO =====
-  bool trySTA(const char* ssid, const char* pass){
-    if (!ssid || !ssid[0]) return false;
+bool trySTA(const char* ssid, const char* pass){
+ if (!ssid || !ssid[0]) return false;
 
-    // Non spegnere l'AP: restiamo in WIFI_AP_STA
-    WiFi.mode(WIFI_AP_STA);
-    delay(50);
+// Restiamo in AP+STA
+WiFi.mode(WIFI_AP_STA);
+delay(10);
 
-    // Config STA
-    WiFi.persistent(false);          // non scrivere flash automaticamente
-    WiFi.setAutoReconnect(true);
-    WiFi.setSleep(false);
-    esp_wifi_set_ps(WIFI_PS_NONE);
-    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-    WiFi.setTxPower(WIFI_POWER_19_5dBm);
+WiFi.persistent(false);
+WiFi.setAutoReconnect(true);
+WiFi.setSleep(false);
+esp_wifi_set_ps(WIFI_PS_NONE);
+esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+WiFi.setTxPower(WIFI_POWER_19_5dBm);
+WiFi.setHostname(mdnsName.c_str());
 
-    WiFi.setHostname(mdnsName.c_str());
+Serial.printf("[NET] Connecting STA → %s (async)\n", ssid);
+WiFi.begin(ssid, pass);
 
-    Serial.printf("[NET] Connecting STA → %s...\n", ssid);
-    WiFi.begin(ssid, pass);
-
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
-      delay(300);
-      Serial.print(".");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-      ipStr = WiFi.localIP().toString();
-      Serial.println("\n[NET] STA Connected @ " + ipStr);
-      return true;
-    }
-
-    Serial.println("\n[NET] STA Connection Failed");
-    return false;
-  }
+// Ritorna subito: il completamento è gestito nel loop() non-bloccante.
+return false;
+};
 
   // ===== mDNS =====
 // euno_network.h — SOSTITUISCI TUTTA initMDNS()

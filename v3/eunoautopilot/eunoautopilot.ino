@@ -775,7 +775,6 @@ void loop() {
   net.loop();
   // enow.loop();
 
-net.loop();
 
   unsigned long currentMillis = millis();
 // === Sensor Fusion update (100 Hz) ===
