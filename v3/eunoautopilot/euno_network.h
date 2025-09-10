@@ -57,55 +57,49 @@ public:
   static const uint8_t PASS_MAX = 64;
 
   // --------- INIT ---------
-  void begin(){
-    Serial.begin(115200);
-    delay(50);
+// euno_network.h — SOSTITUISCI TUTTO IL CORPO DI EunoNetwork::begin() CON QUESTO
+void begin(){
+  Serial.begin(115200);
+  delay(50);
 
-    // EEPROM: carica credenziali utente (sta2)
-    EEPROM.begin(EE_SIZE);
-    String eepSsid, eepPass;
-    if (loadOpenPlotterCreds(eepSsid, eepPass)) {
-      cfg.sta2_ssid = eepSsid;
-      cfg.sta2_pass = eepPass;
-      Serial.println("[NET] EEPROM creds: " + cfg.sta2_ssid);
-    } else {
-      Serial.println("[NET] No EEPROM creds, only defaults");
-    }
+  // EEPROM: carica credenziali utente (STA2)
+  EEPROM.begin(EE_SIZE);
+  String eepSsid, eepPass;
+  if (loadOpenPlotterCreds(eepSsid, eepPass)) {
+    cfg.sta2_ssid = eepSsid;
+    cfg.sta2_pass = eepPass;
+    Serial.println("[NET] EEPROM creds: " + cfg.sta2_ssid);
+  } else {
+    Serial.println("[NET] No EEPROM creds, only defaults");
+  }
 
-    // 1) AP SEMPRE ATTIVO (UI sempre raggiungibile)
-    beginAP(); // non spegne mai la STA, usa WIFI_AP_STA
-    String apIp = WiFi.softAPIP().toString();
-    ipStr = apIp; // finché non si collega la STA
+  // 1) AP SEMPRE ATTIVO (UI sempre raggiungibile)
+  beginAP();                              // WIFI_AP_STA
+  ipStr = WiFi.softAPIP().toString();     // IP di AP finché STA non sale
 
-    // 2) STA: tenta prima default poi EEPROM (AP resta ON)
+  // 2) STA: prova default poi EEPROM (AP resta ON)
+  bool staOk = false;
+  if (trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) staOk = true;
+  else if (cfg.sta2_ssid.length() && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) staOk = true;
+  mode = staOk ? LINK_STA : LINK_AP;
+
+  // 3) mDNS (una sola volta, qui)
+  initMDNS();
+
+  // 4) UDP + HTTP + WS (una sola volta, qui)
+  udp.begin(cfg.udp_in_port);
+  Serial.printf("[NET] UDP IN @ %u\n", cfg.udp_in_port);
+
   mountHTTP();
   ws.begin();
   ws.onEvent([this](uint8_t num, WStype_t type, uint8_t * payload, size_t len){
     onWsEvent(num, type, payload, len);
   });
-  udp.begin(cfg.udp_in_port);
-  Serial.printf("[NET] UDP IN @ %u\n", cfg.udp_in_port);
-    bool staOk = false;
-  if (trySTA(cfg.sta1_ssid.c_str(), cfg.sta1_pass.c_str())) staOk = true;
-  else if (cfg.sta2_ssid.length() && trySTA(cfg.sta2_ssid.c_str(), cfg.sta2_pass.c_str())) staOk = true;
-  mode = staOk ? LINK_STA : LINK_AP;
 
-    // mDNS (valido in AP e STA; su hotspot telefono mDNS può non passare)
-    initMDNS();
+  // Info finale
+  Serial.println("[NET] Ready. Mode=" + String(mode==LINK_STA?"STA":"AP") + " IP=" + ipStr);
+}
 
-    // UDP IN (ascolta su tutte le interfacce)
-    udp.begin(cfg.udp_in_port);
-    Serial.printf("[NET] UDP IN @ %u\n", cfg.udp_in_port);
-
-    // HTTP + WS
-    mountHTTP();
-    ws.begin();
-    ws.onEvent([this](uint8_t num, WStype_t type, uint8_t * payload, size_t len){
-      onWsEvent(num, type, payload, len);
-    });
-
-    Serial.println("[NET] Ready. Mode=" + String(mode==LINK_STA?"STA":"AP") + " IP=" + ipStr);
-  }
 
   // --------- LOOP ---------
   void loop(){
@@ -241,18 +235,25 @@ private:
   }
 
   // ===== mDNS =====
-  void initMDNS() {
-    MDNS.end();
-    delay(50);
+// euno_network.h — SOSTITUISCI TUTTA initMDNS()
+void initMDNS() {
+  MDNS.end();
+  delay(50);
 
-    if (MDNS.begin(mdnsName.c_str())) {
-      MDNS.addService("http", "tcp", 80);
-      MDNS.addService("ws",   "tcp", 81);
-      Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
-    } else {
-      Serial.println("[NET] mDNS Error!");
-    }
+  // Evita begin se non c'è IP né in STA né in AP (caso raro)
+  if (WiFi.status() != WL_CONNECTED && WiFi.softAPIP() == IPAddress(0,0,0,0)) {
+    Serial.println("[NET] mDNS skipped (no IP yet)");
+    return;
   }
+
+  if (MDNS.begin(mdnsName.c_str())) {
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("ws",   "tcp", 81);
+    Serial.println("[NET] mDNS: http://" + mdnsName + ".local");
+  } else {
+    Serial.println("[NET] mDNS Error!");
+  }
+}
 
   // ===== HTTP/WS =====
   void mountHTTP(){

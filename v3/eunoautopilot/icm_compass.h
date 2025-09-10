@@ -31,11 +31,12 @@ private:
   float mx = 0.0f, my = 0.0f, mz = 0.0f;
   float heading = 0.0f;
   uint8_t used_addr = 0;
-
+  bool _initialized = false;  
 public:
   bool begin(uint8_t addr = 0x68, TwoWire *wire = &Wire) {
     if (icm.begin_I2C(addr, wire)) {
       used_addr = addr;
+       _initialized = true;  // Imposta a true se inizializzazione riuscita
       return true;
     }
     uint8_t other = (addr == 0x68) ? 0x69 : 0x68;
@@ -43,9 +44,10 @@ public:
       used_addr = other;
       return true;
     }
+     _initialized = false;
     return false;
   }
-
+  bool isInitialized() { return _initialized; }  
   bool beginAuto(TwoWire *wire = &Wire) {
     return begin(0x68, wire);
   }
@@ -57,7 +59,7 @@ public:
     // Lettura MAG affidabile via sensore dedicato Adafruit (AK09916)
     sensors_event_t mag;
     icm.getMagnetometerSensor()->getEvent(&mag);
-
+ if (!_initialized) return;
     // Applica inversioni definite sopra
     mx = mag.magnetic.x * MAG_INV_X;
     my = mag.magnetic.y * MAG_INV_Y;

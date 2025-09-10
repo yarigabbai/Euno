@@ -31,9 +31,9 @@
 #define COMPASS_USE_SOFTIRON  1
 #define COMPASS_INVERT_CW     0
 
-#define COMPASS_PUB_MS        500UL
-#define COMPASS_MIN_XY_uT     0.8f
-#define COMPASS_Z_REJ_RATIO   3.0f
+#define COMPASS_PUB_MS        300UL
+#define COMPASS_MIN_XY_uT     0.2f
+#define COMPASS_Z_REJ_RATIO   55.0f
 
 // Se vuoi “smorzare” ulteriormente i cambi, alza questo fattore (0..1)
 #define COMPASS_SMOOTH_ALPHA  0.0f   // 0 = nessun low-pass extra sull’uscita

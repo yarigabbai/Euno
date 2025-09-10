@@ -778,6 +778,8 @@ void loop() {
 net.loop();
 
   unsigned long currentMillis = millis();
+// === Sensor Fusion update (100 Hz) ===
+updateSensorFusion();
 
   // Lettura sensori ogni 100 ms
   if (currentMillis - lastSensorUpdate >= sensorUpdateInterval) {
