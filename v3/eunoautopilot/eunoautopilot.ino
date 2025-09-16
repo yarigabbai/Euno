@@ -672,9 +672,28 @@ int getHeadingByMode(){
 // ### SETUP E LOOP ###
 void setup() {
   Serial.begin(115200);
+// I2C bussola (SDA=8, SCL=9)
+Wire.begin(8, 9);
+Wire.setClock(100000); // avvio robusto @100 kHz
+
+// Probe 0x68 prima dell'init (0 = OK)
+Wire.beginTransmission(0x68);
+uint8_t probe = Wire.endTransmission(true);
+Serial.printf("I2C probe 0x68 -> %u (0=OK)\n", probe);
+
+// Init ICM-20948 (non blocca in caso di fallimento)
+if (!compass.beginAuto(&Wire)) {
+  debugLog("ICM-20948 non trovato su 0x68/0x69! (proseguo, rete ON)");
+} else {
+  Serial.printf("ICM-20948 inizializzato su indirizzo 0x%02X\n", compass.getAddress());
+  Wire.setClock(400000); // run @400 kHz dopo init OK
+  delay(5);
+  compass.read();
+}
+
+
  EEPROM.begin(2048);
 loadAdvCalibrationFromEEPROM();
-
 // 1) Leggi offset SIGNED PRIMA di stampare
 EEPROM.get<int16_t>(0, compassOffsetX);
 EEPROM.get<int16_t>(2, compassOffsetY);
@@ -703,16 +722,6 @@ T_risposta = readParamOrDefault(26, /*def*/10,  /*min*/3,   /*max*/12);
 Serial.printf("[PARAM] Vmin=%d Vmax=%d Emin=%d Emax=%d Etol=%d Tpause=%d Trisp=%d\n",
               V_min, V_max, E_min, E_max, E_tol, T_pause, T_risposta);
 
-  // I2C bussola
-  Wire.begin(8, 9);
-  Wire.setClock(400000);
-
-  if (!compass.beginAuto(&Wire)) {
-    debugLog("ICM-20948 non trovato su 0x68/0x69! Controlla wiring.");
-    while (true) delay(10);
-  }
-  Serial.printf("ICM-20948 inizializzato su indirizzo 0x%02X\n", compass.getAddress());
-  compass.read();
 
   // GPS
   Serial2.begin(9600, SERIAL_8N1, 16, 17);
@@ -747,17 +756,6 @@ if (MDNS.begin("euno-client")) {
 
 
 
-//   // ESP-NOW opzionale verso TFT
-//   enow.begin();
-// //enow.clearPairing();
-
-//   // Comandi dal TFT via ESP-NOW → parser
-//   enow.onLine = [](const String& s){
-//     parseNMEAClientLine(s, eunoCmdApi);
-//   };
-
-//   enow.startAutoPairing("EUNO");
-//   enow.addBroadcastPeer();
 
   // Collega callback API
   api.onDelta            = [](int v){ api_cmdDelta_internal(v); };

@@ -1,25 +1,27 @@
 /*
-  EUNO TFT — WebSocket client verso Autopilot
-  - Nessun ESP-NOW
+  EUNO TFT — solo UDP
   - TFT + Touch (box 3×2 in alto, menu 3×2 in basso)
-  - Telemetria/comandi via WebSocket
-  - Si collega all’AP dell’autopilot ("EunoAutopilot"/"password")
+  - Telemetria via UDP ($AUTOPILOT,...)
+  - Comandi via UDP ($PEUNO,CMD,...)
 */
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
-#include <WebSocketsClient.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <EEPROM.h>
+#include <WiFiUdp.h>
 
 #include "screen_config.h"
 
 // ===================== OGGETTI GLOBALI =====================
 TFT_eSPI tft = TFT_eSPI();
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
-WebSocketsClient ws;   // client WebSocket
+WiFiUDP udp;
+
+IPAddress autopilotIP(192,168,4,1);   // IP dell’autopilota in modalità AP
+const int autopilotPort = 10110;      // porta NMEA UDP
 
 bool motorControllerState = false;
 bool externalBearingEnabled = false;
@@ -42,68 +44,6 @@ ButtonActionState buttonActionState = BAS_IDLE;
 unsigned long buttonActionTimestamp = 0;
 unsigned long lastTouchTime = 0;
 
-// ===================== CALLBACK WS =====================
-void onWsEvent(WStype_t type, uint8_t * payload, size_t length) {
-  if (type == WStype_TEXT) {
-    String line((char*)payload, length);
-    Serial.println("[TFT] WS RX: " + line);
-
-    if (line.startsWith("$AUTOPILOT,")) {
-      // --- heading (compatibilità: HEADING o HDG)
-      int heading = kvGetInt(line, "HEADING");
-      if (heading < 0) heading = kvGetInt(line, "HDG");
-      if (heading >= 0) uiUpdateBox(tft, 0, String(heading));
-
-      // --- command
-      int cmd = kvGetInt(line, "COMMAND");
-      if (cmd >= 0) {
-        uiSetCmdLabel(externalBearingEnabled);
-        uiUpdateBox(tft, 1, String(cmd));
-        if (externalBearingEnabled) uiUpdateBoxColor(tft, 1, String(cmd), TFT_GREEN);
-      }
-
-      // --- error
-      int err = kvGetInt(line, "ERROR");
-      if (err < 0) err = kvGetInt(line, "ERR"); // compatibilità WS
-      if (err != INT_MIN) uiUpdateBox(tft, 2, String(err));
-
-      // --- GPS
-      String gpsH = kvGetStr(line, "GPS_HEADING");
-      String gpsS = kvGetStr(line, "GPS_SPEED");
-      if (gpsH.length()) uiUpdateBox(tft, 3, gpsH);
-      if (gpsS.length()) uiUpdateBox(tft, 4, gpsS);
-
-      // --- mode
-      String mode = kvGetStr(line, "MODE");
-      if (mode.length()) uiApplyHeadingModeLabel(tft, mode);
-
-      // --- motore
-      String m = kvGetStr(line, "MOTOR");
-      if (m == "ON")  { motorControllerState = true;  uiUpdateMainOnOff(tft, true); }
-      if (m == "OFF") { motorControllerState = false; uiUpdateMainOnOff(tft, false); }
-
-      // --- external bearing
-      String ext = kvGetStr(line, "EXTBRG");
-      if (ext.length()) {
-        externalBearingEnabled = (ext == "ON" || ext == "1");
-        uiSetCmdLabel(externalBearingEnabled);
-      }
-    }
-    else if (line.startsWith("$PARAM_UPDATE,")) {
-      String nv = getFieldCSV(line, 1);
-      int eq = nv.indexOf('=');
-      if (eq > 0) {
-        String name = nv.substring(0, eq);
-        int val = nv.substring(eq+1).toInt();
-        for (int i=0;i<NUM_PARAMS;i++) {
-          if (name == params[i].name) { params[i].value = val; break; }
-        }
-        uiFlashInfo(tft, name + "=" + String(val));
-      }
-    }
-  }
-}
-
 // ===================== SETUP =====================
 void setup() {
   Serial.begin(115200);
@@ -125,16 +65,19 @@ void setup() {
   }
   Serial.println("\n[TFT] Connected, IP=" + WiFi.localIP().toString());
 
-  ws.begin("192.168.4.1", 81, "/");   // WebSocket dell’autopilot
-  ws.onEvent(onWsEvent);
-  ws.setReconnectInterval(5000);
-  Serial.println("[TFT] WebSocket started");
+  udp.begin(10110); // avvia UDP locale
+  Serial.println("[TFT] UDP started on port 10110");
 }
 
 // ===================== LOOP =====================
 void loop() {
-  ws.loop();
+  // 🔎 Debug touch raw
+  if (touchscreen.touched()) {
+    TS_Point p = touchscreen.getPoint();
+    Serial.printf("[TOUCH RAW] x=%d y=%d z=%d\n", p.x, p.y, p.z);
+  }
 
+  // Controllo tocco con UI
   uiCheckTouch(
     tft, touchscreen,
     menuMode, motorControllerState,
@@ -142,9 +85,43 @@ void loop() {
     pendingAction, pendingButtonType,
     buttonActionState, buttonActionTimestamp, lastTouchTime
   );
+// Controllo azioni da touch
+if (uiConsumeAction(pendingAction)) {
+  String cmd;
 
+  if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
+  else if (pendingAction == "ACTION:+1")     cmd = "$PEUNO,CMD,DELTA=+1";
+  else if (pendingAction == "ACTION:-10")    cmd = "$PEUNO,CMD,DELTA=-10";
+  else if (pendingAction == "ACTION:+10")    cmd = "$PEUNO,CMD,DELTA=+10";
+  else if (pendingAction == "ACTION:TOGGLE") cmd = "$PEUNO,CMD,TOGGLE=1";
+  else if (pendingAction == "ACTION:CAL")    cmd = "$PEUNO,CMD,CAL=MAG";
+  else if (pendingAction == "ACTION:CAL-GYRO") cmd = "$PEUNO,CMD,CAL=GYRO";
+  else if (pendingAction == "ACTION:GPS")    cmd = "$PEUNO,CMD,MODE=FUSION";
+  else if (pendingAction == "ACTION:C-GPS")  cmd = "$PEUNO,CMD,CAL=C-GPS";
+  else if (pendingAction == "ACTION:EXT_BRG") {
+    externalBearingEnabled = !externalBearingEnabled;
+    cmd = String("$PEUNO,CMD,EXTBRG=") + (externalBearingEnabled ? "ON":"OFF");
+    uiSetCmdLabel(externalBearingEnabled);
+    uiUpdateBoxColor(tft, 1, externalBearingEnabled ? "ON" : "OFF",
+                     externalBearingEnabled ? TFT_GREEN : TFT_RED);
+  }
+  else if (pendingAction.startsWith("SET:")) {
+    String rest = pendingAction.substring(4);
+    cmd = "$PEUNO,CMD,SET," + rest;
+  }
+
+  if (cmd.length()) {
+    udp.beginPacket(autopilotIP, autopilotPort);
+    udp.print(cmd);
+    udp.endPacket();
+    Serial.println("[TFT] Sent UDP: " + cmd);
+  }
+}
+
+  // Se è stata generata un’azione → traducila in NMEA e invia via UDP
   if (uiConsumeAction(pendingAction)) {
     String cmd;
+
     if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
     else if (pendingAction == "ACTION:+1")     cmd = "$PEUNO,CMD,DELTA=+1";
     else if (pendingAction == "ACTION:-10")    cmd = "$PEUNO,CMD,DELTA=-10";
@@ -167,8 +144,44 @@ void loop() {
     }
 
     if (cmd.length()) {
-      ws.sendTXT(cmd);
-      Serial.println("[TFT] Sent: " + cmd);
+      udp.beginPacket(autopilotIP, autopilotPort);
+      udp.print(cmd);
+      udp.endPacket();
+      Serial.println("[TFT] Sent UDP: " + cmd);
+    }
+  }
+
+  // Ricezione telemetria via UDP
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    char buf[512];
+    int len = udp.read(buf, sizeof(buf)-1);
+    if (len > 0) buf[len] = 0;
+    String line(buf);
+    Serial.println("[TFT] RX UDP: " + line);
+
+    if (line.startsWith("$AUTOPILOT,")) {
+      int heading = kvGetInt(line, "HEADING");
+      if (heading < 0) heading = kvGetInt(line, "HDG");
+      if (heading >= 0) uiUpdateBox(tft, 0, String(heading));
+
+      int cmd = kvGetInt(line, "COMMAND");
+      if (cmd >= 0) uiUpdateBox(tft, 1, String(cmd));
+
+      int err = kvGetInt(line, "ERROR");
+      if (err != INT_MIN) uiUpdateBox(tft, 2, String(err));
+
+      String gpsH = kvGetStr(line, "GPS_HEADING");
+      String gpsS = kvGetStr(line, "GPS_SPEED");
+      if (gpsH.length()) uiUpdateBox(tft, 3, gpsH);
+      if (gpsS.length()) uiUpdateBox(tft, 4, gpsS);
+
+      String mode = kvGetStr(line, "MODE");
+      if (mode.length()) uiApplyHeadingModeLabel(tft, mode);
+
+      String m = kvGetStr(line, "MOTOR");
+      if (m == "ON")  { motorControllerState = true;  uiUpdateMainOnOff(tft, true); }
+      if (m == "OFF") { motorControllerState = false; uiUpdateMainOnOff(tft, false); }
     }
   }
 }

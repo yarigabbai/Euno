@@ -6,79 +6,112 @@
 #include <Wire.h>
 #include <math.h>
 
-// ==================================================
-// CONFIGURAZIONE ORIENTAMENTO (swap/inversioni assi)
-// ==================================================
-// Dai tuoi dump, l’asse Y NON va invertito: rimettiamo +1.
-#define MAG_INV_X   (+1)
-#define MAG_INV_Y   (+1)   
-#define MAG_INV_Z   (+1)
+// ===== Inversioni assi (lascia +1 se non serve) =====
+#define MAG_INV_X (+1)
+#define MAG_INV_Y (+1)
+#define MAG_INV_Z (+1)
+#define ACC_INV_X (+1)
+#define ACC_INV_Y (+1)
+#define ACC_INV_Z (+1)
+#define GYR_INV_X (+1)
+#define GYR_INV_Y (+1)
+#define GYR_INV_Z (+1)
 
-// Se in futuro noti accelerometro/gyro “girati” nel case, regoli qui:
-#define ACC_INV_X   (+1)
-#define ACC_INV_Y   (+1)
-#define ACC_INV_Z   (+1)
-
-#define GYR_INV_X   (+1)
-#define GYR_INV_Y   (+1)
-#define GYR_INV_Z   (+1)
-
-// ==================================================
+// ===== Pin I2C fissi per ESP32-S3 =====
+static const int EUNO_I2C_SDA  = 8;
+static const int EUNO_I2C_SCL  = 9;
+static const uint32_t EUNO_I2C_CLK_INIT = 100000; // init a 100 kHz (robusto)
+static const uint32_t EUNO_I2C_CLK_RUN  = 400000; // run a 400 kHz
 
 class ICMCompass {
 private:
   Adafruit_ICM20948 icm;
   float mx = 0.0f, my = 0.0f, mz = 0.0f;
   float heading = 0.0f;
-  uint8_t used_addr = 0;
-  bool _initialized = false;  
-public:
-  bool begin(uint8_t addr = 0x68, TwoWire *wire = &Wire) {
+  uint8_t used_addr = 0x00;
+  bool _initialized = false;
+
+  // Rimetti SEMPRE i pin/clock sul bus prima di ogni operazione critica
+  void ensureBus(TwoWire *wire, uint32_t hz){
+    wire->begin(EUNO_I2C_SDA, EUNO_I2C_SCL);
+    wire->setClock(hz);
+  }
+
+  // Probe ACK all'indirizzo
+  bool probe(TwoWire *wire, uint8_t addr){
+    ensureBus(wire, EUNO_I2C_CLK_INIT);
+    wire->beginTransmission(addr);
+    uint8_t e = wire->endTransmission(true);
+    return (e == 0);
+  }
+
+  bool tryBeginAt(TwoWire *wire, uint8_t addr){
+    ensureBus(wire, EUNO_I2C_CLK_INIT);
     if (icm.begin_I2C(addr, wire)) {
-      used_addr = addr;
-       _initialized = true;  // Imposta a true se inizializzazione riuscita
+      used_addr   = addr;
+      _initialized = true;
+      // dopo init puoi salire a 400 kHz
+      ensureBus(wire, EUNO_I2C_CLK_RUN);
       return true;
     }
-    uint8_t other = (addr == 0x68) ? 0x69 : 0x68;
-    if (icm.begin_I2C(other, wire)) {
-      used_addr = other;
-      return true;
-    }
-     _initialized = false;
     return false;
   }
-  bool isInitialized() { return _initialized; }  
-  bool beginAuto(TwoWire *wire = &Wire) {
-    return begin(0x68, wire);
+
+public:
+  // Init diretto su un indirizzo (default 0x68)
+  bool begin(uint8_t addr = 0x68, TwoWire *wire = &Wire){
+    _initialized = false;
+
+    // 1) prima prova: se non risponde, evita il giro inutile della lib
+    if (!probe(wire, addr)) {
+      // opzionale: prova anche l'altro
+      uint8_t other = (addr == 0x68) ? 0x69 : 0x68;
+      if (!probe(wire, other)) {
+        return false;
+      }
+      addr = other;
+    }
+
+    // 2) a questo punto c'è ACK: inizia davvero
+    if (tryBeginAt(wire, addr)) return true;
+
+    // 3) fallback (rarissimo, ma innocuo)
+    uint8_t other = (addr == 0x68) ? 0x69 : 0x68;
+    if (tryBeginAt(wire, other)) return true;
+
+    _initialized = false;
+    return false;
   }
 
-  // compatibilità
+  // Auto: prova 0x68, poi 0x69 (senza cambiare API)
+  bool beginAuto(TwoWire *wire = &Wire){
+    if (begin(0x68, wire)) return true;
+    if (begin(0x69, wire)) return true;
+    return false;
+  }
+
+  bool isInitialized() const { return _initialized; }
   uint8_t getAddress() const { return used_addr; }
 
-  void read() {
-    // Lettura MAG affidabile via sensore dedicato Adafruit (AK09916)
+  // ===== Lettura magnetometro (AK09916 via Adafruit wrapper) =====
+  void read(){
+    if (!_initialized) return;
     sensors_event_t mag;
-    icm.getMagnetometerSensor()->getEvent(&mag);
- if (!_initialized) return;
-    // Applica inversioni definite sopra
+    auto ms = icm.getMagnetometerSensor();
+    if (!ms) return;
+    ms->getEvent(&mag);
     mx = mag.magnetic.x * MAG_INV_X;
     my = mag.magnetic.y * MAG_INV_Y;
     mz = mag.magnetic.z * MAG_INV_Z;
 
-    // Heading matematico: 0°=Est, +90°=Nord; la UI ruota già (deg-90) nel disegno
     float h = atan2f(my, mx) * 180.0f / (float)M_PI;
     if (h < 0.0f) h += 360.0f;
     heading = h;
   }
 
-  // ===== Accessori magnetometro =====
-  float getX() { return mx; }
-  float getY() { return my; }
-  float getZ() { return mz; }
-  float getHeading() { return heading; }
-
   // ===== Accelerometro =====
-  bool getAccelEvent(sensors_event_t &out) {
+  bool getAccelEvent(sensors_event_t &out){
+    if (!_initialized) return false;
     auto s = icm.getAccelerometerSensor();
     if (!s) return false;
     s->getEvent(&out);
@@ -89,7 +122,8 @@ public:
   }
 
   // ===== Giroscopio =====
-  bool getGyroEvent(sensors_event_t &out) {
+  bool getGyroEvent(sensors_event_t &out){
+    if (!_initialized) return false;
     auto s = icm.getGyroSensor();
     if (!s) return false;
     s->getEvent(&out);
@@ -98,6 +132,12 @@ public:
     out.gyro.z *= GYR_INV_Z;
     return true;
   }
+
+  // ===== Accesso valori =====
+  float getX(){ return mx; }
+  float getY(){ return my; }
+  float getZ(){ return mz; }
+  float getHeading(){ return heading; }
 };
 
 #endif // ICM_COMPASS_H
