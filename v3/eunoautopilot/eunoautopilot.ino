@@ -676,19 +676,25 @@ void setup() {
 Wire.begin(8, 9);
 Wire.setClock(100000); // avvio robusto @100 kHz
 
-// Probe 0x68 prima dell'init (0 = OK)
+// WHO_AM_I atteso = 0xEA (ICM-20948, reg 0x00)
 Wire.beginTransmission(0x68);
-uint8_t probe = Wire.endTransmission(true);
-Serial.printf("I2C probe 0x68 -> %u (0=OK)\n", probe);
+Wire.write(0x7F); Wire.write(0x00); Wire.endTransmission(true);
+Wire.beginTransmission(0x68); Wire.write(0x00); Wire.endTransmission(false);
+Wire.requestFrom(0x68, 1, true);
+int who = Wire.available() ? Wire.read() : -1;
+Serial.printf("[ICM] WHO_AM_I=0x%02X (atteso 0xEA)\n", who);
 
-// Init ICM-20948 (non blocca in caso di fallimento)
-if (!compass.beginAuto(&Wire)) {
-  debugLog("ICM-20948 non trovato su 0x68/0x69! (proseguo, rete ON)");
+if (who == 0xEA) {
+  if (!compass.beginAuto(&Wire)) {
+    Serial.println("[ICM] beginAuto fallita. Avvio senza tilt/gyro.");
+  } else {
+    Serial.println("[ICM] Init OK @0x69");
+    Wire.setClock(400000); // alza dopo init riuscita
+    delay(5);
+    compass.read();
+  }
 } else {
-  Serial.printf("ICM-20948 inizializzato su indirizzo 0x%02X\n", compass.getAddress());
-  Wire.setClock(400000); // run @400 kHz dopo init OK
-  delay(5);
-  compass.read();
+  Serial.println("[ICM] WHO_AM_I non valido, skip init.");
 }
 
 
@@ -726,11 +732,11 @@ Serial.printf("[PARAM] Vmin=%d Vmax=%d Emin=%d Emax=%d Etol=%d Tpause=%d Trisp=%
   // GPS
   Serial2.begin(9600, SERIAL_8N1, 16, 17);
 //dns
-if (MDNS.begin("euno-client")) {
-  Serial.println("mDNS responder started: http://euno-client.local");
-} else {
-  Serial.println("Error setting up MDNS responder!");
-}
+// if (MDNS.begin("euno-client")) {
+//   Serial.println("mDNS responder started: http://euno-client.local");
+// } else {
+//   Serial.println("Error setting up MDNS responder!");
+// }
   // Heading iniziale
   compass.read();
   int headingCompass = getCorrectedHeading();
@@ -745,6 +751,7 @@ if (MDNS.begin("euno-client")) {
   net.cfg.sta1_pass = "";
 
   net.begin();
+udp.begin(serverPort); // abilita UDP in ingresso
 
 
   net.onUdpLine   = [](const String& s){ EUNO_PARSE(s); };
@@ -803,8 +810,7 @@ updateSensorFusion();
     }
   }
 
-  // Aggiornamento sensori ad alta frequenza
-  updateSensorFusion();
+
 
   // gestione loop adv (non blocca)
   if (isAdvancedCalibrationMode()) {

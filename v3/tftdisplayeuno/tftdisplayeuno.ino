@@ -74,7 +74,7 @@ void loop() {
   // 🔎 Debug touch raw
   if (touchscreen.touched()) {
     TS_Point p = touchscreen.getPoint();
-    Serial.printf("[TOUCH RAW] x=%d y=%d z=%d\n", p.x, p.y, p.z);
+   
   }
 
   // Controllo tocco con UI
@@ -158,7 +158,7 @@ if (uiConsumeAction(pendingAction)) {
     int len = udp.read(buf, sizeof(buf)-1);
     if (len > 0) buf[len] = 0;
     String line(buf);
-    Serial.println("[TFT] RX UDP: " + line);
+
 
     if (line.startsWith("$AUTOPILOT,")) {
       int heading = kvGetInt(line, "HEADING");
