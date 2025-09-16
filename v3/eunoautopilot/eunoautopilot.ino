@@ -676,15 +676,11 @@ Serial.begin(115200);
 // === INIT ICM-20948 (Pimoroni @0x68) ===
 Wire.begin(8, 9);
 Wire.setClock(100000);            // avvio robusto
-if (!compass.beginAuto(&Wire)) {
-  Serial.println("[ICM] FAIL: nessun ICM-20948 su 0x68/0x69");
-  while (true) delay(10);
+if (!compass.begin(0x68, &Wire)) {
+  Serial.println("ICM20948 not found!");
+} else {
+  Serial.println("ICM20948 inizializzato.");
 }
-Wire.setClock(400000);            // ora sali a 400 kHz
-compass.read();                   // warm-up
-Serial.printf("[ICM] OK @0x%02X\n", compass.getAddress());
-
-
 
  EEPROM.begin(2048);
 loadAdvCalibrationFromEEPROM();
