@@ -671,31 +671,19 @@ int getHeadingByMode(){
 
 // ### SETUP E LOOP ###
 void setup() {
-  Serial.begin(115200);
-// I2C bussola (SDA=8, SCL=9)
+  // === INIT ICM-20948 (Pimoroni, I2C @0x68) ===
+Serial.begin(115200);
+// === INIT ICM-20948 (Pimoroni @0x68) ===
 Wire.begin(8, 9);
-Wire.setClock(100000); // avvio robusto @100 kHz
-
-// WHO_AM_I atteso = 0xEA (ICM-20948, reg 0x00)
-Wire.beginTransmission(0x68);
-Wire.write(0x7F); Wire.write(0x00); Wire.endTransmission(true);
-Wire.beginTransmission(0x68); Wire.write(0x00); Wire.endTransmission(false);
-Wire.requestFrom(0x68, 1, true);
-int who = Wire.available() ? Wire.read() : -1;
-Serial.printf("[ICM] WHO_AM_I=0x%02X (atteso 0xEA)\n", who);
-
-if (who == 0xEA) {
-  if (!compass.beginAuto(&Wire)) {
-    Serial.println("[ICM] beginAuto fallita. Avvio senza tilt/gyro.");
-  } else {
-    Serial.println("[ICM] Init OK @0x69");
-    Wire.setClock(400000); // alza dopo init riuscita
-    delay(5);
-    compass.read();
-  }
-} else {
-  Serial.println("[ICM] WHO_AM_I non valido, skip init.");
+Wire.setClock(100000);            // avvio robusto
+if (!compass.beginAuto(&Wire)) {
+  Serial.println("[ICM] FAIL: nessun ICM-20948 su 0x68/0x69");
+  while (true) delay(10);
 }
+Wire.setClock(400000);            // ora sali a 400 kHz
+compass.read();                   // warm-up
+Serial.printf("[ICM] OK @0x%02X\n", compass.getAddress());
+
 
 
  EEPROM.begin(2048);
@@ -981,7 +969,7 @@ String telem = String("$AUTOPILOT")
              + ",MODE="    + String(headingSourceMode)
              + ",MOTOR="   + String(motorControllerState ? "ON" : "OFF");
 net.sendWS(telem);
-
+net.sendUDP(telem);
 Serial.println("[DEBUG] sendWS: " + telem);
 
     // 6) NMEA UDP (HDT)

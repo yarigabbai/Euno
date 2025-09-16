@@ -74,7 +74,7 @@ void loop() {
   // 🔎 Debug touch raw
   if (touchscreen.touched()) {
     TS_Point p = touchscreen.getPoint();
-   
+    Serial.printf("[TOUCH RAW] x=%d y=%d z=%d\n", p.x, p.y, p.z);
   }
 
   // Controllo tocco con UI
@@ -85,41 +85,11 @@ void loop() {
     pendingAction, pendingButtonType,
     buttonActionState, buttonActionTimestamp, lastTouchTime
   );
-// Controllo azioni da touch
-if (uiConsumeAction(pendingAction)) {
-  String cmd;
 
-  if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
-  else if (pendingAction == "ACTION:+1")     cmd = "$PEUNO,CMD,DELTA=+1";
-  else if (pendingAction == "ACTION:-10")    cmd = "$PEUNO,CMD,DELTA=-10";
-  else if (pendingAction == "ACTION:+10")    cmd = "$PEUNO,CMD,DELTA=+10";
-  else if (pendingAction == "ACTION:TOGGLE") cmd = "$PEUNO,CMD,TOGGLE=1";
-  else if (pendingAction == "ACTION:CAL")    cmd = "$PEUNO,CMD,CAL=MAG";
-  else if (pendingAction == "ACTION:CAL-GYRO") cmd = "$PEUNO,CMD,CAL=GYRO";
-  else if (pendingAction == "ACTION:GPS")    cmd = "$PEUNO,CMD,MODE=FUSION";
-  else if (pendingAction == "ACTION:C-GPS")  cmd = "$PEUNO,CMD,CAL=C-GPS";
-  else if (pendingAction == "ACTION:EXT_BRG") {
-    externalBearingEnabled = !externalBearingEnabled;
-    cmd = String("$PEUNO,CMD,EXTBRG=") + (externalBearingEnabled ? "ON":"OFF");
-    uiSetCmdLabel(externalBearingEnabled);
-    uiUpdateBoxColor(tft, 1, externalBearingEnabled ? "ON" : "OFF",
-                     externalBearingEnabled ? TFT_GREEN : TFT_RED);
-  }
-  else if (pendingAction.startsWith("SET:")) {
-    String rest = pendingAction.substring(4);
-    cmd = "$PEUNO,CMD,SET," + rest;
-  }
+  // Controllo azioni da touch e invio comandi via UDP
+  if (pendingAction.length() > 0) {
+    Serial.println("[TFT] Action: " + pendingAction);
 
-  if (cmd.length()) {
-    udp.beginPacket(autopilotIP, autopilotPort);
-    udp.print(cmd);
-    udp.endPacket();
-    Serial.println("[TFT] Sent UDP: " + cmd);
-  }
-}
-
-  // Se è stata generata un’azione → traducila in NMEA e invia via UDP
-  if (uiConsumeAction(pendingAction)) {
     String cmd;
 
     if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
@@ -149,6 +119,9 @@ if (uiConsumeAction(pendingAction)) {
       udp.endPacket();
       Serial.println("[TFT] Sent UDP: " + cmd);
     }
+
+    // svuota l’azione
+    pendingAction = "";
   }
 
   // Ricezione telemetria via UDP
@@ -158,7 +131,7 @@ if (uiConsumeAction(pendingAction)) {
     int len = udp.read(buf, sizeof(buf)-1);
     if (len > 0) buf[len] = 0;
     String line(buf);
-
+    Serial.println("[TFT] RX UDP: " + line);
 
     if (line.startsWith("$AUTOPILOT,")) {
       int heading = kvGetInt(line, "HEADING");
