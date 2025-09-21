@@ -77,7 +77,7 @@ void loop() {
     Serial.printf("[TOUCH RAW] x=%d y=%d z=%d\n", p.x, p.y, p.z);
   }
 
-  // Controllo tocco con UI
+  // Controllo tocco con UI (gestisce highlight + switch pagina con ritardo)
   uiCheckTouch(
     tft, touchscreen,
     menuMode, motorControllerState,
@@ -86,42 +86,46 @@ void loop() {
     buttonActionState, buttonActionTimestamp, lastTouchTime
   );
 
-  // Controllo azioni da touch e invio comandi via UDP
+  // INVIA SOLO le azioni di tipo comando (ACTION:/SET:)
   if (pendingAction.length() > 0) {
-    Serial.println("[TFT] Action: " + pendingAction);
+    if (pendingAction == "MENU:SWITCH" || pendingAction == "NEXT" || pendingAction == "IMP") {
+      // NON consumare qui: servono alla state-machine di uiCheckTouch()
+      // Verrà ridisegnato il menu quando buttonActionState passa a BAS_ACTION_SENT.
+    } else {
+      Serial.println("[TFT] Action: " + pendingAction);
 
-    String cmd;
+      String cmd;
+      if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
+      else if (pendingAction == "ACTION:+1")     cmd = "$PEUNO,CMD,DELTA=+1";
+      else if (pendingAction == "ACTION:-10")    cmd = "$PEUNO,CMD,DELTA=-10";
+      else if (pendingAction == "ACTION:+10")    cmd = "$PEUNO,CMD,DELTA=+10";
+      else if (pendingAction == "ACTION:TOGGLE") cmd = "$PEUNO,CMD,TOGGLE=1";
+      else if (pendingAction == "ACTION:CAL")    cmd = "$PEUNO,CMD,CAL=MAG";
+      else if (pendingAction == "ACTION:CAL-GYRO") cmd = "$PEUNO,CMD,CAL=GYRO";
+      else if (pendingAction == "ACTION:GPS")    cmd = "$PEUNO,CMD,MODE=FUSION";
+      else if (pendingAction == "ACTION:C-GPS")  cmd = "$PEUNO,CMD,CAL=C-GPS";
+      else if (pendingAction == "ACTION:EXT_BRG") {
+        externalBearingEnabled = !externalBearingEnabled;
+        cmd = String("$PEUNO,CMD,EXTBRG=") + (externalBearingEnabled ? "ON":"OFF");
+        uiSetCmdLabel(externalBearingEnabled);
+        uiUpdateBoxColor(tft, 1, externalBearingEnabled ? "ON" : "OFF",
+                         externalBearingEnabled ? TFT_GREEN : TFT_RED);
+      }
+      else if (pendingAction.startsWith("SET:")) {
+        String rest = pendingAction.substring(4);
+        cmd = "$PEUNO,CMD,SET," + rest;
+      }
 
-    if      (pendingAction == "ACTION:-1")     cmd = "$PEUNO,CMD,DELTA=-1";
-    else if (pendingAction == "ACTION:+1")     cmd = "$PEUNO,CMD,DELTA=+1";
-    else if (pendingAction == "ACTION:-10")    cmd = "$PEUNO,CMD,DELTA=-10";
-    else if (pendingAction == "ACTION:+10")    cmd = "$PEUNO,CMD,DELTA=+10";
-    else if (pendingAction == "ACTION:TOGGLE") cmd = "$PEUNO,CMD,TOGGLE=1";
-    else if (pendingAction == "ACTION:CAL")    cmd = "$PEUNO,CMD,CAL=MAG";
-    else if (pendingAction == "ACTION:CAL-GYRO") cmd = "$PEUNO,CMD,CAL=GYRO";
-    else if (pendingAction == "ACTION:GPS")    cmd = "$PEUNO,CMD,MODE=FUSION";
-    else if (pendingAction == "ACTION:C-GPS")  cmd = "$PEUNO,CMD,CAL=C-GPS";
-    else if (pendingAction == "ACTION:EXT_BRG") {
-      externalBearingEnabled = !externalBearingEnabled;
-      cmd = String("$PEUNO,CMD,EXTBRG=") + (externalBearingEnabled ? "ON":"OFF");
-      uiSetCmdLabel(externalBearingEnabled);
-      uiUpdateBoxColor(tft, 1, externalBearingEnabled ? "ON" : "OFF",
-                       externalBearingEnabled ? TFT_GREEN : TFT_RED);
+      if (cmd.length()) {
+        udp.beginPacket(autopilotIP, autopilotPort);
+        udp.print(cmd);
+        udp.endPacket();
+        Serial.println("[TFT] Sent UDP: " + cmd);
+      }
+
+      // consumiamo SOLO le azioni di comando
+      pendingAction = "";
     }
-    else if (pendingAction.startsWith("SET:")) {
-      String rest = pendingAction.substring(4);
-      cmd = "$PEUNO,CMD,SET," + rest;
-    }
-
-    if (cmd.length()) {
-      udp.beginPacket(autopilotIP, autopilotPort);
-      udp.print(cmd);
-      udp.endPacket();
-      Serial.println("[TFT] Sent UDP: " + cmd);
-    }
-
-    // svuota l’azione
-    pendingAction = "";
   }
 
   // Ricezione telemetria via UDP

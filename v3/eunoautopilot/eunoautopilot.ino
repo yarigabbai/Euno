@@ -391,6 +391,10 @@ if (command.startsWith("$PEUNO,CMD,")) {
       udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:ON");  udp.endPacket();
       net.sendWS("MOTOR:ON");
     } else {
+      stopMotor();                 // stop elettrico immediato (pwm=0)
+motorPhaseActive = false;    // azzera la fase del duty-cycle
+shouldStopMotor = false;     // pulisci la guardia “3 cicli in calo”
+
       udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:OFF"); udp.endPacket();
       net.sendWS("MOTOR:OFF");
     }
@@ -466,17 +470,22 @@ if (command.startsWith("$PEUNO,CMD,")) {
       if (headingCommand>=360) headingCommand-=360;
     } else { extendMotor(V_max); delay(700); stopMotor(); }
   }
-  else if (command == "ACTION:TOGGLE") {
-    motorControllerState = !motorControllerState;
-    if (motorControllerState) {
-      headingCommand = currentHeading;
-      udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:ON");  udp.endPacket();
-//enow.sendLine("MOTOR:ON");
-    } else {
-      udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:OFF"); udp.endPacket();
-     // enow.sendLine("MOTOR:OFF");
-    }
+else if (command == "ACTION:TOGGLE") {
+  motorControllerState = !motorControllerState;
+  if (motorControllerState) {
+    headingCommand = currentHeading;
+    udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:ON");  udp.endPacket();
+    net.sendWS("MOTOR:ON");
+  } else {
+    stopMotor();
+    motorPhaseActive = false;
+    shouldStopMotor = false;
+
+    net.sendWS("MOTOR:OFF");
+    udp.beginPacket(serverIP, serverPort); udp.print("MOTOR:OFF"); udp.endPacket();
   }
+}
+
   else if (command == "ACTION:CAL") {
     if (!calibrationMode) {
       calibrationMode = true;

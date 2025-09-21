@@ -188,7 +188,6 @@ void uiUpdateBoxColor(TFT_eSPI& tft, int index, const String& value, uint16_t co
 
 // ON/OFF grande (tasto nel menu, ma qui ridisegniamo box terzo tasto del menu)
 void uiUpdateMainOnOff(TFT_eSPI& tft, bool isOn){
-  // lo disegniamo nel menu quando viene ridisegnato
   (void)tft; (void)isOn;
 }
 
@@ -314,19 +313,27 @@ void uiCheckTouch(
 ){
   // gestione transizioni highlight → esecuzione → redraw
   if (buttonActionState == BAS_HIGHLIGHT && (millis() - buttonActionTimestamp >= 100)) {
-    // esecuzione differita di “NEXT” e MENU switch
+    // esecuzione differita “NEXT”, “MENU:SWITCH” e “IMP”
     if (menuMode == 2 && pendingButtonType == 2 && pendingAction == "NEXT") {
       // invia SET corrente (verrà mappato nell’INO in $PEUNO,CMD,SET,...)
       pendingAction = String("SET:") + params[currentParamIndex].name + "=" + String(params[currentParamIndex].value);
       // passa al successivo
       currentParamIndex++;
       if (currentParamIndex >= NUM_PARAMS) { menuMode = 0; currentParamIndex = 0; }
-    } else if (pendingAction == "MENU:SWITCH") {
-      // 0 → 1 → 3 → 0
+    } 
+    else if (pendingAction == "MENU:SWITCH") {
+      // 0 → 1 → 3 → 0 (il menu dei parametri è la voce "IMP")
       if      (menuMode==0) menuMode=1;
       else if (menuMode==1) menuMode=3;
       else                  menuMode=0;
     }
+    else if (pendingAction == "IMP") {
+      // entra nella schermata parametri (menuMode 2)
+      menuMode = 2;
+      // opzionale: resetta l’indice al primo parametro
+      // currentParamIndex = 0;
+    }
+
     buttonActionState = BAS_ACTION_SENT;
     buttonActionTimestamp = millis();
   }
@@ -370,8 +377,6 @@ void uiCheckTouch(
     } else if (menuMode==2){
       // NEXT area (header)
       const int headerH=50;
-      int leftW = (2*tft.width())/3;
-      int rightW = tft.width()-leftW;
       if (y>=staticAreaHeight && y<staticAreaHeight+headerH){
         if (x >= tft.width()-80-10) {
           pendingAction="NEXT";
