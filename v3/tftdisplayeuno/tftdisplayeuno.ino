@@ -22,9 +22,12 @@ WiFiUDP udp;
 
 IPAddress autopilotIP(192,168,4,1);   // IP dell’autopilota in modalità AP
 const int autopilotPort = 10110;      // porta NMEA UDP
+unsigned long lastReconnectAttempt = 0;
 
 bool motorControllerState = false;
 bool externalBearingEnabled = false;
+const char* WIFI_SSID = "EunoAutopilot";
+const char* WIFI_PASSWORD = "password";
 
 int menuMode = 0;
 int currentParamIndex = 0;
@@ -57,7 +60,9 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin("EunoAutopilot","password");
+// setup()
+WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
   Serial.println("[TFT] Connecting to EunoAutopilot...");
   while (WiFi.status() != WL_CONNECTED) {
     delay(200);
@@ -127,6 +132,14 @@ void loop() {
       pendingAction = "";
     }
   }
+if (WiFi.status() != WL_CONNECTED) {
+  if (millis() - lastReconnectAttempt > 5000) {  // ogni 5s tenta
+    Serial.println("WiFi non connesso, ritento...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    lastReconnectAttempt = millis();
+  }
+}
 
   // Ricezione telemetria via UDP
   int packetSize = udp.parsePacket();
