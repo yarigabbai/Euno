@@ -13,6 +13,8 @@
   Full license text:
   https://creativecommons.org/licenses/by-nc/4.0/legalcode
 */
+#define SERIAL_DEBUG_BLE 1
+#include "ble.h"
 
 #include <Wire.h>
 #include <EEPROM.h>
@@ -33,6 +35,8 @@
 #define EUNO_IS_CLIENT
 #include "euno_debug.h"
 #include "calibration.h"
+#include "ble.h"
+TikTokBLE ble;
 
 // ‼️ forward-declarations ‼️
 #include "nmea_client.h"   // serve il tipo EunoCmdAPI
@@ -738,6 +742,8 @@ Serial.printf("[PARAM] Vmin=%d Vmax=%d Emin=%d Emax=%d Etol=%d Tpause=%d Trisp=%
   headingGyro = headingCompass;
   headingExperimental = headingCompass;
 
+
+
   // === Rete/UI: STA(EUNOAP→OP) con fallback AP; mDNS, HTTP(/), WS(:81), UDP(:10110)
   EUNO_LOAD_OP_CREDS(net);
   net.cfg.sta1_ssid = "";
@@ -766,6 +772,15 @@ udp.begin(serverPort); // abilita UDP in ingresso
   api.onExtBrg           = [](bool on){ api_cmdExtBrg_internal(on); };
   api.onExternalBearing  = [](int brg){ api_cmdExternalBearing_internal(brg); };
   api.onOpenPlotterFrame = [](const String& kind,const String& raw){ api_onOpenPlotterFrame_internal(kind,raw); };
+
+ble.begin();
+ble.onPeunoCmd = [](const char* line){
+  Serial.printf("[BLE→PEUNO] %s\n", line);   // debug: vedi cosa entra
+  extern EunoNetwork net;                    // <-- metti il NOME reale della tua istanza rete
+  net.onUdpLine(String(line));               // stesso ingresso dei comandi da rete
+};
+
+
 }
 
 void loop() {
@@ -773,6 +788,7 @@ void loop() {
   net.loop();
   // enow.loop();
 
+ble.loop();
 
   unsigned long currentMillis = millis();
 // === Sensor Fusion update (100 Hz) ===

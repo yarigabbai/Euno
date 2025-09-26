@@ -6,7 +6,5 @@ const char MANIFEST_JSON[] PROGMEM = R"json({
   "display": "standalone",
   "background_color": "#0b0f13",
   "theme_color": "#0b0f13",
-  "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }
-  ]
+
 })json";

@@ -10,7 +10,7 @@
 #include <esp_wifi.h>
 #include <EEPROM.h>
 #include "manifest_json.h"
-#include "icon_192_png.h"
+
 
 // ===================== CONFIG RETE =====================
 struct EunoNetConfig {
@@ -257,15 +257,7 @@ void initMDNS() {
       server.send_P(200, "text/html", INDEX_HTML);
     });
 
-    // Icona
-    extern const uint8_t ICON_192_PNG[] PROGMEM;
-    extern const size_t ICON_192_PNG_LEN;
-    server.on("/icon-192.png", HTTP_GET, [this](){
-      server.sendHeader("Content-Type", "image/png");
-      server.sendHeader("Content-Length", String(ICON_192_PNG_LEN));
-      server.send(200);
-      server.sendContent_P((const char*)ICON_192_PNG, ICON_192_PNG_LEN);
-    });
+ 
 
     // Manifest PWA
     extern const char MANIFEST_JSON[] PROGMEM;
