@@ -136,14 +136,13 @@ if (millis() - lastChk > 800) {
     }
   }
 
-  if (st != WL_CONNECTED) {
-    // Throttle duro: mai più spesso di 30 s (stop "tic" ogni 10 s)
-    if (millis() - lastKick > 30000) {
-      WiFi.reconnect();               // fire-and-forget
-      lastKick = millis();
-      Serial.println("[NET] STA reconnect kick (30s throttle)");
-    }
+ if (st != WL_CONNECTED && !wsReady) {
+  if (millis() - lastKick > 60000) {
+    WiFi.reconnect();
+    lastKick = millis();
+    Serial.println("[NET] STA reconnect kick (60s, paused while WS connected)");
   }
+}
 }
 
 
@@ -198,7 +197,7 @@ private:
 
     // AP config
     WiFi.softAPConfig(IPAddress(192, 168, 4, 1),
-                      IPAddress(192, 168, 4, 1),
+                      IPAddress(0, 0, 0, 0),
                       IPAddress(255, 255, 255, 0));
     WiFi.softAP(cfg.ap_ssid.c_str(), cfg.ap_pass.c_str(), 1, 0, 4);
 
@@ -218,7 +217,7 @@ WiFi.setAutoReconnect(true);
 WiFi.setSleep(false);
 esp_wifi_set_ps(WIFI_PS_NONE);
 esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
-WiFi.setTxPower(WIFI_POWER_19_5dBm);
+WiFi.setTxPower(WIFI_POWER_15dBm);
 WiFi.setHostname(mdnsName.c_str());
 
 Serial.printf("[NET] Connecting STA → %s (async)\n", ssid);
