@@ -981,14 +981,22 @@ if (millis() - lastTiltDebug > 2000) {
 
     // 5) ESP-NOW per TFT
   // 4) WebSocket/UI – usa HEADING e ERROR come nel TFT
+// 4) WebSocket/UI – usa HEADING e ERROR come nel TFT
 String telem = String("$AUTOPILOT")
-             + ",HEADING=" + String(hdgOut)
-             + ",COMMAND=" + String(headingCommand)
-             + ",ERROR="   + String(err)
+             + ",HEADING="     + String(hdgOut)
+             + ",COMMAND="     + String(headingCommand)
+             + ",ERROR="       + String(err)
              + ",GPS_HEADING=" + (gps.course.isValid() ? String((int)gps.course.deg()) : "N/A")
              + ",GPS_SPEED="   + (gps.speed.isValid()  ? String(gps.speed.knots(),1)    : "N/A")
-             + ",MODE="    + String(headingSourceMode)
-             + ",MOTOR="   + String(motorControllerState ? "ON" : "OFF");
+             + ",MODE="        + String(headingSourceMode)
+             + ",MOTOR="       + String(motorControllerState ? "ON" : "OFF")
+             // >>> nuovi campi letti dalla WebApp <<<
+             + ",HDG_C="       + String(hdgC)    // Compass
+             + ",HDG_F="       + String(hdgF)    // Fusion
+             + ",HDG_E="       + String(hdgE)    // Experimental
+             + ",HDG_A="       + String(hdgA)    // ADV
+             + ",EXTBRG="      + String(externalBearingEnabled ? "ON" : "OFF");
+
 net.sendWS(telem);
 net.sendUDP(telem);
 Serial.println("[DEBUG] sendWS: " + telem);
