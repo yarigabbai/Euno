@@ -456,7 +456,15 @@ function parseTelem(line){
   // External bearing
   const ext = m.EXTBRG || m.EXT_BR || m.EXTERNAL_BRG;
   if (ext){ const el=document.getElementById('extbrg'); if(el) el.textContent = ext; }
+  if (m.E_tol && !m.Deadband) m.Deadband = m.E_tol; // alias
 
+  ['V_min','V_max','E_min','E_max','Deadband','T_pause','T_risposta'].forEach(id=>{
+    if (m[id] !== undefined) {
+      const el = document.getElementById(id);
+      // non sovrascrive se stai editando quel campo
+      if (el && document.activeElement !== el) el.value = m[id];
+    }
+  });
   paintHome(); updateVisual();
 }
 
@@ -587,14 +595,6 @@ function setRingStatus(connected){
   selSSID && selSSID.addEventListener('change', ()=>{ inputSSID.value = selSSID.value||""; });
 })();
 
-/* ===== Demo loop if no telemetry ===== */
-setInterval(()=>{
-  const d = shortDiff(hdg,cmd);
-  hdg = norm(hdg + Math.sign(d)*Math.min(Math.abs(d), 2));
-  cog = norm(hdg + (Math.random()*6-3));
-  sog = Math.max(0, (sog||0) + (Math.random()*0.2-0.1));
-  paintHome(); updateVisual();
-},250);
 
 /* ===== Init ===== */
 function init(){

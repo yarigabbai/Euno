@@ -946,7 +946,7 @@ if (millis() - lastTiltDebug > 2000) {
 }
   // === TELEMETRIA $AUTOPILOT (WS + ESP-NOW + UDP HDT) =====================
   static unsigned long _lastTel = 0;
-  if (millis() - _lastTel >= 200) {
+  if (millis() - _lastTel >= 1000) {
 
     // 1) Heading “di controllo” e errore
     int hdgOut = getHeadingByMode();
@@ -990,15 +990,24 @@ String telem = String("$AUTOPILOT")
              + ",GPS_SPEED="   + (gps.speed.isValid()  ? String(gps.speed.knots(),1)    : "N/A")
              + ",MODE="        + String(headingSourceMode)
              + ",MOTOR="       + String(motorControllerState ? "ON" : "OFF")
-             // >>> nuovi campi letti dalla WebApp <<<
-             + ",HDG_C="       + String(hdgC)    // Compass
-             + ",HDG_F="       + String(hdgF)    // Fusion
-             + ",HDG_E="       + String(hdgE)    // Experimental
-             + ",HDG_A="       + String(hdgA)    // ADV
-             + ",EXTBRG="      + String(externalBearingEnabled ? "ON" : "OFF");
+             // --- headings per UI ---
+             + ",HDG_C="       + String(hdgC)
+             + ",HDG_F="       + String(hdgF)
+             + ",HDG_E="       + String(hdgE)
+             + ",HDG_A="       + String(hdgA)
+             + ",EXTBRG="      + String(externalBearingEnabled ? "ON" : "OFF")
+             // --- PARAMETRI (telemetria) ---
+             + ",V_min="       + String(V_min)
+             + ",V_max="       + String(V_max)
+             + ",E_min="       + String(E_min)
+             + ",E_max="       + String(E_max)
+             + ",Deadband="    + String(E_tol)     // la WebApp usa l’ID 'Deadband'
+             + ",E_tol="       + String(E_tol)     // alias utile a log/retrocompatibilità
+             + ",T_pause="     + String(T_pause)
+             + ",T_risposta="  + String(T_risposta);
 
 net.sendWS(telem);
-net.sendUDP(telem);
+ net.sendUDP(telem);
 Serial.println("[DEBUG] sendWS: " + telem);
 
     // 6) NMEA UDP (HDT)
